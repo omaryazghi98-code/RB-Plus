@@ -1,0 +1,445 @@
+{
+  "schema": 1,
+  "name": "Stremio Plus UI regression fixture",
+  "scope": "Static metadata and synthetic stream, playback and account states for host UI regression tests.",
+  "artRoot": "art",
+  "fallbackPoster": "../../app/sce_sys/icon0.png",
+  "fallbackBackdrop": "../../app/sce_sys/pic0-source.png",
+  "artRights": "Optional artwork is resolved from the local art directory. Missing images use the bundled application icon and backdrop.",
+  "hero": "tt0816692",
+  "metas": [
+    {
+      "id": "tt0816692",
+      "type": "movie",
+      "name": "Interstellar",
+      "year": "2014",
+      "runtime": "169 min",
+      "rating": "8.7",
+      "description": "A team of explorers travels through a passage in space in search of a new home for humanity. For Cooper, leaving means parting with the people he loves most.",
+      "poster": "tt0816692-poster.rgba",
+      "background": "tt0816692-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/movie/tt0816692.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt0816692/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt0816692/img"
+    },
+    {
+      "id": "tt0133093",
+      "type": "movie",
+      "name": "The Matrix",
+      "year": "1999",
+      "runtime": "136 min",
+      "rating": "8.7",
+      "description": "A programmer's life changes when an unexpected encounter challenges his understanding of reality.",
+      "poster": "tt0133093-poster.rgba",
+      "background": "tt0133093-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/movie/tt0133093.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt0133093/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt0133093/img"
+    },
+    {
+      "id": "tt1856101",
+      "type": "movie",
+      "name": "Blade Runner 2049",
+      "year": "2017",
+      "runtime": "164 min",
+      "rating": "8.0",
+      "description": "An officer uncovers a secret that could change the fragile balance between humans and replicants.",
+      "poster": "tt1856101-poster.rgba",
+      "background": "tt1856101-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/movie/tt1856101.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt1856101/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt1856101/img"
+    },
+    {
+      "id": "tt15239678",
+      "type": "movie",
+      "name": "Dune: Part Two",
+      "year": "2024",
+      "runtime": "167 min",
+      "rating": "8.4",
+      "description": "Paul Atreides joins the Fremen as he finds his way through love, revenge and the fate of Arrakis.",
+      "poster": "tt15239678-poster.rgba",
+      "background": "tt15239678-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/movie/tt15239678.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt15239678/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt15239678/img"
+    },
+    {
+      "id": "tt1375666",
+      "type": "movie",
+      "name": "Inception",
+      "year": "2010",
+      "runtime": "148 min",
+      "rating": "8.8",
+      "description": "An expert in extracting dreams takes on a different kind of mission: planting an idea in another person's mind.",
+      "poster": "tt1375666-poster.rgba",
+      "background": "tt1375666-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/movie/tt1375666.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt1375666/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt1375666/img"
+    },
+    {
+      "id": "tt0114369",
+      "type": "movie",
+      "name": "Seven",
+      "year": "1995",
+      "runtime": "127 min",
+      "rating": "8.6",
+      "description": "Two detectives follow a series of murders through a city marked by rain and corruption.",
+      "poster": "tt0114369-poster.rgba",
+      "background": "tt0114369-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/movie/tt0114369.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt0114369/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt0114369/img"
+    },
+    {
+      "id": "tt0120737",
+      "type": "movie",
+      "name": "The Lord of the Rings: The Fellowship of the Ring",
+      "year": "2001",
+      "runtime": "179 min",
+      "rating": "8.9",
+      "description": "Frodo leaves the Shire with a fellowship of allies on a journey that will determine the future of Middle-earth.",
+      "poster": "tt0120737-poster.rgba",
+      "background": "tt0120737-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/movie/tt0120737.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt0120737/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt0120737/img"
+    },
+    {
+      "id": "tt0088763",
+      "type": "movie",
+      "name": "Back to the Future",
+      "year": "1985",
+      "runtime": "116 min",
+      "rating": "8.5",
+      "description": "A teenager is transported into the past and must put events back in order before returning home.",
+      "poster": "tt0088763-poster.rgba",
+      "background": "tt0088763-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/movie/tt0088763.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt0088763/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt0088763/img"
+    },
+    {
+      "id": "tt7660850",
+      "type": "series",
+      "name": "Succession",
+      "year": "2018–2023",
+      "runtime": "61 min",
+      "rating": "8.8",
+      "description": "The Roy family controls a media empire. As succession becomes a real possibility, family ties, ambition and power collide.",
+      "poster": "tt7660850-poster.rgba",
+      "background": "tt7660850-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/series/tt7660850.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt7660850/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt7660850/img",
+      "badge": "S1 E2",
+      "progress": "38%"
+    },
+    {
+      "id": "tt0903747",
+      "type": "series",
+      "name": "Breaking Bad",
+      "year": "2008–2013",
+      "runtime": "49 min",
+      "rating": "9.5",
+      "description": "A chemistry teacher makes a decision that transforms his life, his family and the world around him.",
+      "poster": "tt0903747-poster.rgba",
+      "background": "tt0903747-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/series/tt0903747.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt0903747/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt0903747/img",
+      "badge": "S2 E5",
+      "progress": "62%"
+    },
+    {
+      "id": "tt4574334",
+      "type": "series",
+      "name": "Stranger Things",
+      "year": "2016–2025",
+      "runtime": "65 min",
+      "rating": "8.6",
+      "description": "A boy's disappearance leads a group of friends to uncover secret experiments and a presence beyond the world they know.",
+      "poster": "tt4574334-poster.rgba",
+      "background": "tt4574334-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/series/tt4574334.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt4574334/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt4574334/img"
+    },
+    {
+      "id": "tt1856010",
+      "type": "series",
+      "name": "House of Cards",
+      "year": "2013–2018",
+      "runtime": "51 min",
+      "rating": "8.6",
+      "description": "A Washington politician builds his rise to power alongside his wife, navigating alliances and ambition.",
+      "poster": "tt1856010-poster.rgba",
+      "background": "tt1856010-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/series/tt1856010.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt1856010/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt1856010/img"
+    },
+    {
+      "id": "tt1254207",
+      "type": "movie",
+      "name": "Big Buck Bunny",
+      "year": "2008",
+      "runtime": "10 min",
+      "rating": "6.8",
+      "description": "A large rabbit and three small forest creatures meet in an animated short from the Blender Institute.",
+      "poster": "tt1254207-poster.rgba",
+      "background": "tt1254207-background.rgba",
+      "source": "https://v3-cinemeta.strem.io/meta/movie/tt1254207.json",
+      "posterSource": "https://images.metahub.space/poster/small/tt1254207/img",
+      "backgroundSource": "https://images.metahub.space/background/medium/tt1254207/img"
+    }
+  ],
+  "home": [
+    {
+      "title": "Discover tonight",
+      "seeAll": false,
+      "items": [
+        "tt0816692",
+        "tt1856101",
+        "tt15239678",
+        "tt0133093",
+        "tt1375666",
+        "tt0114369",
+        "tt0120737",
+        "tt0088763"
+      ],
+      "continueWatching": false
+    },
+    {
+      "title": "Series to explore",
+      "seeAll": false,
+      "items": [
+        "tt7660850",
+        "tt0903747",
+        "tt4574334",
+        "tt1856010"
+      ],
+      "continueWatching": false
+    },
+    {
+      "title": "Continue watching",
+      "seeAll": false,
+      "items": [
+        "tt7660850",
+        "tt0903747"
+      ],
+      "continueWatching": true
+    }
+  ],
+  "discover": [
+    "tt0816692",
+    "tt1856101",
+    "tt15239678",
+    "tt0133093",
+    "tt1375666",
+    "tt0114369",
+    "tt0120737",
+    "tt0088763",
+    "tt1254207"
+  ],
+  "library": [
+    "tt0816692",
+    "tt7660850",
+    "tt1856101",
+    "tt0903747",
+    "tt1375666",
+    "tt4574334",
+    "tt0120737",
+    "tt0088763",
+    "tt0133093",
+    "tt0114369",
+    "tt1856010"
+  ],
+  "detail": {
+    "id": "tt7660850",
+    "series": true,
+    "genres": "Drama · Comedy",
+    "cast": "Nicholas Braun · Brian Cox · Kieran Culkin",
+    "directors": "",
+    "season": "Season 1",
+    "episode": 1,
+    "resume": "Resume episode 2",
+    "episodes": [
+      {
+        "title": "01   Celebration",
+        "subtitle": "2018-06-04",
+        "image": "tt7660850-background.rgba",
+        "watched": true,
+        "source": "https://v3-cinemeta.strem.io/meta/series/tt7660850.json",
+        "thumbnailSource": "https://episodes.metahub.space/tt7660850/1/1/w780.jpg"
+      },
+      {
+        "title": "02   Sh*t Show at the F**k Factory",
+        "subtitle": "2018-06-11",
+        "image": "tt7660850-background.rgba",
+        "watched": false,
+        "source": "https://v3-cinemeta.strem.io/meta/series/tt7660850.json",
+        "thumbnailSource": "https://episodes.metahub.space/tt7660850/1/2/w780.jpg"
+      },
+      {
+        "title": "03   Lifeboats",
+        "subtitle": "2018-06-18",
+        "image": "tt7660850-background.rgba",
+        "watched": false,
+        "source": "https://v3-cinemeta.strem.io/meta/series/tt7660850.json",
+        "thumbnailSource": "https://episodes.metahub.space/tt7660850/1/3/w780.jpg"
+      },
+      {
+        "title": "04   Sad Sack Wasp Trap",
+        "subtitle": "2018-06-25",
+        "image": "tt7660850-background.rgba",
+        "watched": false,
+        "source": "https://v3-cinemeta.strem.io/meta/series/tt7660850.json",
+        "thumbnailSource": "https://episodes.metahub.space/tt7660850/1/4/w780.jpg"
+      },
+      {
+        "title": "05   I Went to Market",
+        "subtitle": "2018-07-02",
+        "image": "tt7660850-background.rgba",
+        "watched": false,
+        "source": "https://v3-cinemeta.strem.io/meta/series/tt7660850.json",
+        "thumbnailSource": "https://episodes.metahub.space/tt7660850/1/5/w780.jpg"
+      },
+      {
+        "title": "06   Which Side Are You On?",
+        "subtitle": "2018-07-09",
+        "image": "tt7660850-background.rgba",
+        "watched": false,
+        "source": "https://v3-cinemeta.strem.io/meta/series/tt7660850.json",
+        "thumbnailSource": "https://episodes.metahub.space/tt7660850/1/6/w780.jpg"
+      },
+      {
+        "title": "07   Austerlitz",
+        "subtitle": "2018-07-16",
+        "image": "tt7660850-background.rgba",
+        "watched": false,
+        "source": "https://v3-cinemeta.strem.io/meta/series/tt7660850.json",
+        "thumbnailSource": "https://episodes.metahub.space/tt7660850/1/7/w780.jpg"
+      }
+    ],
+    "resolutions": [
+      {
+        "name": "4K / 2160p",
+        "addon": "3 sources",
+        "description": "Choose an available source"
+      },
+      {
+        "name": "Full HD / 1080p",
+        "addon": "6 sources",
+        "description": "Choose an available source"
+      },
+      {
+        "name": "HD / 720p",
+        "addon": "2 sources",
+        "description": "Choose an available source"
+      }
+    ],
+    "streams": [
+      {
+        "name": "4K · HEVC · Italian / English",
+        "addon": "Torrentio",
+        "description": "S01E02 · WEB-DL · 2160p\n👤 12  💾 2.80 GB  ⚙️ Provider\n🇮🇹 / 🇬🇧",
+        "languages": [
+          "ita",
+          "eng"
+        ],
+        "seeders": 12,
+        "type": "torrent",
+        "quality": "4K",
+        "size": "2.80 GB"
+      },
+      {
+        "name": "4K · HEVC · Multilingual audio",
+        "addon": "Comet",
+        "description": "S01E02 · WEB-DL · 2160p\nItalian / English · HEVC",
+        "languages": [
+          "ita",
+          "eng",
+          "fre",
+          "ger",
+          "spa"
+        ],
+        "seeders": -1,
+        "type": "debrid",
+        "quality": "4K",
+        "size": "3.10 GB",
+        "cached": true
+      },
+      {
+        "name": "1080p · H.264 · Italian",
+        "addon": "AIOStreams",
+        "description": "S01E02 · WEB-DL · Full HD\nH.264 · AAC · IT / EN",
+        "languages": [
+          "ita",
+          "eng"
+        ],
+        "seeders": -1,
+        "type": "direct",
+        "quality": "1080p",
+        "size": "1.45 GB"
+      }
+    ]
+  },
+  "addons": [
+    {
+      "name": "Cinemeta",
+      "description": "Movie and series catalogs and information.",
+      "types": "Movies · Series",
+      "local": false
+    },
+    {
+      "name": "Torrentio",
+      "description": "Torrent sources and configured links.",
+      "types": "Movies · Series",
+      "local": false
+    },
+    {
+      "name": "Comet",
+      "description": "Stream discovery and aggregation.",
+      "types": "Movies · Series",
+      "local": false
+    },
+    {
+      "name": "AIOStreams",
+      "description": "Providers combined in a single configuration.",
+      "types": "Movies · Series",
+      "local": false
+    },
+    {
+      "name": "TMDB",
+      "description": "Catalogs, collections and metadata.",
+      "types": "Movies · Series",
+      "local": false
+    },
+    {
+      "name": "AIOMetadata",
+      "description": "Metadata for movies, series and anime.",
+      "types": "Movies · Series · Anime",
+      "local": false
+    },
+    {
+      "name": "Trakt",
+      "description": "Personal lists and synchronized catalogs.",
+      "types": "Movies · Series",
+      "local": false
+    },
+    {
+      "name": "OpenSubtitles",
+      "description": "Subtitles in preferred languages.",
+      "types": "Subtitles",
+      "local": false
+    },
+    {
+      "name": "Stremio Community Subtitles",
+      "description": "Community subtitles.",
+      "types": "Subtitles",
+      "local": true
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+/.deps/
+/build/
+/build-*/
+/dist/
+/dist-*/
+/build-receipt.json
+/tests/results/
+__pycache__/
+*.py[cod]
+*.o
+*.a
+*.elf
+*.ffpfsc
+*.log
+.DS_Store
+.vscode/
+.idea/

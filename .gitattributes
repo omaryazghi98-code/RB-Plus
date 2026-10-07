@@ -1,2 +1,18 @@
-# Auto detect text files and perform LF normalization
 * text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.png binary
+*.jpg binary
+*.dds binary
+*.rgba binary
+*.wav binary
+*.at9 binary
+*.ttf binary
+*.otf binary
+*.huifont binary
+vendor/** linguist-vendored
+third_party/** linguist-vendored
