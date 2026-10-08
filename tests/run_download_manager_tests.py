@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix="stremio-download-manager-") as folder:
     command = [os.environ.get("HOST_CXX", "clang++-18"), "-std=c++20", "-O1", "-g",
                "-Wall", "-Wextra", "-Wpedantic", "-Werror", "-pthread",
                "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-               "-Wl,--wrap=lstat,--wrap=opendir,--wrap=chmod,--wrap=fchmod,--wrap=write,--wrap=fsync",
+               "-Wl,--wrap=lstat,--wrap=opendir,--wrap=mkdir,--wrap=chmod,--wrap=fchmod,--wrap=write,--wrap=fsync",
                "-I" + str(root / "src"), "-I" + str(root / "third_party"),
                str(root / "src/download_manager.cpp"),
                str(root / "tests/test_download_manager.cpp"), "-o", str(binary)]

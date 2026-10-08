@@ -47,6 +47,9 @@ struct DownloadTransferResult {
 	std::string extension = ".media";
 	int64_t done = 0;
 	int64_t total = -1;
+	// Original filesystem errno. Zero for network, source and helper-protocol
+	// failures, so the queue can pause storage work without losing its inventory.
+	int storage_error = 0;
 };
 
 // Blocking worker operation. Progress callbacks may be invoked frequently but

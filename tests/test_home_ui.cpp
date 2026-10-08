@@ -104,16 +104,17 @@ int main(int argc, char** argv) {
           "maximum profile can be restored without opening a keyboard");
 
     std::fprintf(stderr, "UI checks: UTF-8 keyboard\n");
-    app.s_sel = setting("server_url"); // text entry without contacting a server
-    send(D::none, A::confirm);
-    check(app.input_visible_, "text setting opens controller keyboard");
+    send(D::none, A::north);
+    check(app.view == "search" && app.input_visible_, "Search opens the controller keyboard");
     app.replace_input("città");
     send(D::none, A::west);
     check(app.input_value == "citt", "keyboard backspace removes a full UTF-8 code point");
     send(D::none, A::north);
     check(app.input_value == "citt ", "keyboard space shortcut reaches model");
     send(D::none, A::back);
-    check(!app.input_visible_ && app.settings().server_url.empty(), "keyboard cancel preserves previous setting");
+    check(!app.input_visible_ && app.search_query.empty(), "keyboard cancel preserves the previous query");
+    send(D::none, A::back);
+    check(app.view == "settings", "Search Back returns to the originating Settings page");
 
     std::fprintf(stderr, "UI checks: focus transfer\n");
     app.s_sel = setting("reduced_motion");

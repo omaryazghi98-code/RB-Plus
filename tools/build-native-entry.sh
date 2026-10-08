@@ -102,7 +102,6 @@ if data['titleId'] != title:
     data['titleId'] = title
     data['conceptId'] = title[4:]
     data['contentId'] = f'UP9000-{title}_00-STREMIOPS5000001'
-data['downloadDataSize'] = 16384
 localized = data['localizedParameters']
 localized.setdefault(localized.get('defaultLanguage', 'en-US'), {})['titleName'] = name
 localized.setdefault('en-US', {})['titleName'] = name

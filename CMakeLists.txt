@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(stremio-ps5 VERSION 0.5.4 LANGUAGES C CXX)
+project(stremio-ps5 VERSION 0.5.6 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT CMAKE_BUILD_TYPE)
@@ -20,7 +20,7 @@ file(GLOB_RECURSE HUI_SOURCES CONFIGURE_DEPENDS "${HUI_DIR}/src/gfx/*.cpp" "${HU
 list(FILTER HUI_SOURCES EXCLUDE REGEX "/audio/music\\.cpp$")
 set(STREMIO_SOURCES
     src/main.cpp src/app.cpp src/app_board.cpp src/app_browse.cpp src/app_detail.cpp src/app_preview_meta.cpp
-    src/app_settings.cpp src/app_preferences.cpp src/app_watch.cpp src/home_ui.cpp
+    src/app_settings.cpp src/app_preferences.cpp src/app_watch.cpp src/home_ui.cpp src/download_directory.cpp
     src/calendar_date.cpp src/controller_ambient.cpp src/ui_language.cpp
     src/app_downloads.cpp src/download_manager.cpp src/download_transfer.cpp src/download_text.cpp
     src/growing_file_stream.cpp

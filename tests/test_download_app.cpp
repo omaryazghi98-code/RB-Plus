@@ -191,7 +191,34 @@ struct AppProtocolTest {
         expect(download_error_text("Unknown transport diagnostic", true) == "Riprova il download o scegli un'altra sorgente.",
                "unknown download reasons do not leak English into the Italian interface");
         expect(download_error_text("", true).empty(), "empty error remains empty without introducing a notification");
+        expect(download_error_text("A download relocation is pending. Retry the same destination to finish moving the saved files.", true)
+                   .find("stessa destinazione") != std::string::npos,
+               "interrupted relocation tells Italian users to retry the same folder");
         prepare(app, directory);
+        std::string selection_error;
+        (void)app.downloads_.init(directory, directory, "", &selection_error);
+        expect(app.downloads_.download_directory().empty(), "new profiles have no implicitly selected download folder");
+        app.on_button(Btn::Square);
+        expect(app.download_directory_notice && app.downloads_.snapshot().empty(),
+               "download without a folder opens only the acknowledgement notice");
+        const auto original_view = app.view;
+        app.on_button(Btn::Triangle); app.on_button(Btn::L1);
+        expect(app.download_directory_notice && app.view == original_view,
+               "folder reminder consumes navigation without opening search or settings");
+        app.on_button(Btn::Cross);
+        expect(!app.download_directory_notice && app.view == original_view && app.downloads_.snapshot().empty(),
+               "OK closes the reminder without queuing or changing screens");
+        app.on_button(Btn::Square); app.on_button(Btn::Circle);
+        expect(!app.download_directory_notice && app.downloads_.snapshot().empty(),
+               "Circle dismisses the same reminder without starting a download");
+        expect(app.downloads_.set_download_directory(directory + "/downloads", selection_error),
+               "an explicit directory selection enables downloads");
+        app.directory_picker_committing = true;
+        const auto waiting_tasks = g_tasks.pending();
+        app.download_selected_stream(app.d_stream_list_.front());
+        expect(app.downloads_.snapshot().empty() && g_tasks.pending() == waiting_tasks,
+               "a folder move blocks new stream submissions before its worker starts");
+        app.directory_picker_committing = false;
         const auto tasks_before = g_tasks.pending();
         app.on_button(Btn::Square);
         app.d_stream_sel = 1;
@@ -292,6 +319,14 @@ struct AppProtocolTest {
         app.on_button(Btn::Circle);
         expect(app.downloads_.find(held).has_value(), "cancelling deletion preserves the download");
         focus(app, held); app.on_button(Btn::Square);
+        const auto stale_delete = app.dd_chosen_;
+        app.on_button(Btn::Circle);
+        app.directory_picker_committing = true;
+        stale_delete(1);
+        expect(app.downloads_.find(held).has_value(),
+               "a deletion callback opened before relocation cannot remove a moving job");
+        app.directory_picker_committing = false;
+        focus(app, held); app.on_button(Btn::Square);
         std::reverse(app.download_rows.begin(), app.download_rows.end()); app.download_sel = 0;
         app.dd_sel = 1; app.on_button(Btn::Cross);
         expect(!app.downloads_.find(held) && app.downloads_.find(first) && app.downloads_.find(retry),
@@ -310,6 +345,20 @@ struct AppProtocolTest {
         expect(std::filesystem::is_regular_file(complete->poster_path), "offline artwork survives original cache removal");
         app.progress_[complete->media_id] = {complete->type, complete->title, "", complete->video_id, 38, 1000, 0};
         focus(app, first);
+        app.directory_picker_committing = true;
+        app.play_download(first);
+        app.start_download_playback(first, false, 0);
+        expect(player_opens == 0 && !app.dd_visible && !app.watching(),
+               "moving a completed file prevents both resume prompts and direct player opens");
+        app.directory_picker_committing = false;
+        app.play_download(first);
+        const auto stale_resume = app.dd_chosen_;
+        app.on_button(Btn::Circle);
+        app.directory_picker_committing = true;
+        stale_resume(1);
+        expect(player_opens == 0 && !app.watching(),
+               "a previously opened resume choice cannot reopen an old path during relocation");
+        app.directory_picker_committing = false;
         const auto lookup_before = art_lookups;
         const auto notification_before = app.toast_revision;
         int audio_releases = 0;
@@ -432,6 +481,44 @@ struct AppProtocolTest {
                std::filesystem::is_regular_file(app.downloads_.find(art_second)->poster_path),
                "all queued covers survive manager restart after original cache artwork is removed");
         delayed_poster_url.clear();
+
+        app.downloads_.set_enabled(false);
+        app.downloads_.shutdown();
+        const std::string orphan_id = "d" + std::string(32, 'a');
+        const std::string orphan_directory = directory + "/downloads/" + orphan_id;
+        std::filesystem::create_directory(orphan_directory);
+        { std::ofstream partial(orphan_directory + "/media.part", std::ios::binary); partial << std::string(4096, 'x'); }
+        expect(app.downloads_.init(directory), "readable orphan files do not prevent inventory startup");
+        app.downloads_.set_enabled(false);
+        focus(app, orphan_id);
+        const auto& recovered = app.download_rows[app.download_sel];
+        expect(recovered.recovery_only && recovered.failed && !recovered.complete &&
+               !recovered.playable_while_downloading && recovered.progress < 0,
+               "unrecognized disk files remain visible without invented playback or completion state");
+        expect(recovered.title.find("Download da verificare") == 0 &&
+               recovered.size.find("Spazio occupato:") == 0,
+               "recovered files have an identifiable localized title and occupied storage label");
+        const int opens_before_recovery = player_opens;
+        const auto callbacks_before_recovery = delayed_art_callbacks.size();
+        app.on_button(Btn::Options);
+        app.on_button(Btn::Cross);
+        expect(player_opens == opens_before_recovery && app.downloads_.find(orphan_id)->recovery_only &&
+               delayed_art_callbacks.size() == callbacks_before_recovery &&
+               app.toast.find("informazioni del download") != std::string::npos,
+               "recovery actions explain the retained files without playing or resuming an unknown source");
+        expect(std::filesystem::file_size(orphan_directory + "/media.part") == 4096,
+               "viewing recovery information preserves every partial-file byte");
+        app.on_button(Btn::Square);
+        expect(app.dd_visible && app.dd_sel == 0 && app.dd_title.find("Download da verificare") != std::string::npos,
+               "recovery deletion identifies the chosen files and defaults to Cancel");
+        app.on_button(Btn::Circle);
+        expect(std::filesystem::exists(orphan_directory + "/media.part"),
+               "cancelling recovery deletion leaves the disk files intact");
+        app.on_button(Btn::Square); app.dd_sel = 1; app.on_button(Btn::Cross);
+        until([&] { return !std::filesystem::exists(orphan_directory); },
+              "confirmed orphan deletion finishes on the background worker");
+        expect(!app.downloads_.find(orphan_id) && !std::filesystem::exists(orphan_directory),
+               "confirmed recovery deletion removes its retained files as well as the visible entry");
         expect(unexpected_http == 0 && unexpected_json == 0, "all App wiring checks completed without network traffic");
     }
 };

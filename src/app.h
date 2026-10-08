@@ -69,6 +69,7 @@ struct UiDownload {
 	float progress = -1;
 	bool complete = false, active = false, failed = false, paused = false;
 	bool playable_while_downloading = false;
+	bool recovery_only = false;
 };
 struct UiMenuItem {
 	std::string label;
@@ -115,6 +116,7 @@ struct Settings {
 	std::string server_url;
 	bool builtin_torrents = true;
 	int torrent_speed_profile = 2; // 0 Balanced, 1 Fast, 2 Ultra fast
+	std::string download_directory;
 	std::string subtitle_langs = "ita, eng";
 	bool auto_subtitles = true;
 	std::string sub_size = "sub-m";
@@ -122,6 +124,7 @@ struct Settings {
 	int sub_background_opacity = 70;
 	std::string audio_langs = "ita, eng";
 	bool autoplay_next = true;
+	int next_episode_delay_seconds = 15;
 	bool reduced_motion = false, ui_sounds = true, high_contrast = false, show_stats = false;
 	int sound_volume = 35, subtitle_offset_ms = 0, seek_seconds = 10, shoulder_seek_seconds = 60;
 	int display_resolution = -1;  // Automatic (PS5); 0/1/2 are explicit 1080p/1440p/2160p.
@@ -161,6 +164,7 @@ public:
 	bool wants_exit() const { return exit_; }
 	bool watching() const { return watching_; }
 	bool text_entry_active() const { return input_visible_; }
+	bool download_relocation_active() const;
 	std::pair<std::string, std::string> ambient_artwork() const;
 	// The platform yields its UI sound device before the player claims audio.
 	std::function<void()> before_playback;
@@ -204,6 +208,15 @@ public:
 
 	std::vector<UiSetting> s_rows;
 	int s_sel = 0;
+	bool directory_picker_visible = false, directory_picker_loading = false;
+	bool directory_picker_committing = false, directory_picker_error = false;
+	bool download_directory_notice = false;
+	std::string directory_picker_path, directory_picker_status;
+	std::vector<std::string> directory_picker_entries;
+	int directory_picker_sel = 0;
+	int64_t directory_move_done = 0, directory_move_total = -1;
+	int directory_move_items_done = 0, directory_move_items_total = 0;
+	std::string directory_move_title;
 
 	std::string d_background, d_logo, d_name, d_runtime, d_year, d_imdb, d_genres, d_cast, d_directors,
 	    d_description, d_resume;
@@ -233,6 +246,9 @@ public:
 	std::string m_delay;
 
 	bool launch_visible = false;
+	bool next_episode_visible = false;
+	int next_episode_seconds = 0, next_episode_sel = 0;
+	std::string next_episode_title, next_episode_label, next_episode_thumb;
 	std::string launch_image, launch_logo, launch_title, launch_status;
 	float launch_progress = -1;  // -1 unknown; otherwise a normalized startup buffer fill.
 
@@ -396,11 +412,22 @@ private:
 	bool watched(const std::string& video_id) const;
 	void toggle_watched(const std::string& video_id);
 	std::string episode_label(const Video& v) const;
+	const Video* detail_next_episode(const std::string& video_id) const;
+	bool detail_select_episode(const std::string& video_id);
 
 	// app_settings.cpp
 	void enter_settings();
 	void settings_refresh();
 	void settings_button(Btn b);
+	void open_download_directory_picker();
+	void close_download_directory_picker(bool shutting_down = false);
+	void browse_download_directory(const std::string& path, bool nearest = false,
+	                               const std::string& focus = "");
+	void directory_picker_button(Btn b);
+	void directory_picker_tick();
+	int directory_picker_generation_ = 0;
+	bool directory_picker_shutdown_ = false;
+	std::shared_ptr<std::atomic<bool>> directory_picker_cancel_;
 	void open_language_checklist(bool audio);
 	void open_date_checklist();
 	void refresh_clock();
@@ -431,6 +458,15 @@ private:
 	void watch_enrich_subtitle_params();
 	void watch_auto_subtitles();
 	void watch_next_episode();
+	void watch_offer_next_episode();
+	void watch_next_episode_tick();
+	void watch_next_episode_button(Btn b);
+	void watch_cancel_next_episode();
+	void watch_finish_episode();
+	bool w_ended_handled_ = false;
+	std::string next_episode_id_, next_episode_series_, next_episode_from_, next_episode_download_id_;
+	int next_episode_account_generation_ = 0;
+	double next_episode_deadline_ = 0;
 	void watch_show_info();
 
 	// -------------------------------------------------------------------

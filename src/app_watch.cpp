@@ -102,6 +102,8 @@ private:
 
 void App::watch_start(const std::string& url, const std::vector<std::string>& headers, double start,
                       const std::string& title, const std::string& subtitle, bool direct) {
+	watch_cancel_next_episode();
+	w_ended_handled_ = false;
 	if (w_sub_cancel_) w_sub_cancel_->store(true);
 	w_sub_cancel_ = std::make_shared<std::atomic<bool>>(false);
 	w_media_url_ = url;
@@ -243,6 +245,9 @@ void App::watch_show_info() {
 }
 
 void App::watch_update() {
+	// A resolver can still show the launch overlay after the previous player
+	// reached Ended. Only an actually opened player owns an end-of-file event.
+	if (!watching_ || w_ended_handled_) return;
 	double now = now_seconds();
 	Player::State st = player_.state();
 	player_.log_stats();
@@ -258,10 +263,7 @@ void App::watch_update() {
 		return;
 	}
 	if (st == Player::State::Ended) {
-		watch_save_progress(true);
-		bool next = settings_.autoplay_next && d_series && !w_offline_;
-		watch_stop(true);
-		if (next) watch_next_episode();
+		watch_finish_episode();
 		return;
 	}
 
@@ -381,9 +383,9 @@ void App::watch_update() {
 }
 
 void App::watch_stop(bool ended) {
-	if (w_started_ && !ended) watch_save_progress(true);
-	if (ended && !w_video_id_.empty()) {
-		watched_.insert(w_video_id_);
+	watch_cancel_next_episode();
+	if (w_started_ && !ended && !w_ended_handled_) watch_save_progress(true);
+	if (ended && !w_video_id_.empty() && watched_.insert(w_video_id_).second) {
 		save_progress();
 	}
 	w_gen_++;
@@ -849,31 +851,160 @@ void App::watch_auto_subtitles() {
 // ---------------------------------------------------------------------------
 // Next episode
 
-void App::watch_next_episode() {
-	const Video* next_video = nullptr;
-	for (size_t i = 0; i < d_season_videos_.size(); ++i) {
-		if (d_season_videos_[i]->id != w_video_id_) continue;
-		if (i + 1 < d_season_videos_.size()) next_video = d_season_videos_[i + 1];
-		else if (d_season_idx_ >= 0 && d_season_idx_ + 1 < int(d_seasons_.size()) &&
-		         d_seasons_[d_season_idx_] > 0 && d_seasons_[d_season_idx_ + 1] > 0) {
-			// Follow the same sorted season/episode order shown by the UI, including
-			// custom anime metadata; never roll a regular season into specials.
-			detail_set_season(d_season_idx_ + 1);
-			if (!d_season_videos_.empty()) next_video = d_season_videos_.front();
-		}
-		break;
-	}
-	if (!next_video) return;
-	const Video& next = *next_video;
-	for (size_t i = 0; i < d_season_videos_.size(); i++)
-		if (d_season_videos_[i]->id == next.id) d_episode_sel = int(i);
+void App::watch_finish_episode() {
+	if (!watching_ || w_ended_handled_) return;
+	w_ended_handled_ = true;
+	watch_save_progress(true);
+	if (!w_video_id_.empty() && watched_.insert(w_video_id_).second) save_progress();
+	if (settings_.autoplay_next && (w_item_.type == "series" || w_item_.type == "anime" || (!w_offline_ && d_series)))
+		watch_offer_next_episode();
+	if (!next_episode_visible) watch_stop(true);
+}
 
+void App::watch_offer_next_episode() {
+	watch_cancel_next_episode();
+	if (!settings_.autoplay_next) return;
+	Video local_video;
+	std::string local_art;
+	const Video* next = nullptr;
+	if (w_offline_) {
+		const auto current = downloads_.find(w_download_id_);
+		if (!current || current->state != DownloadState::Complete || current->media_id != w_item_.id) return;
+		// Cached complete metadata can establish a season boundary. Without it,
+		// only the exact adjacent numbered episode is safe to infer locally.
+		const Video* expected = d_item_.id == w_item_.id ? detail_next_episode(w_video_id_) : nullptr;
+		const bool metadata_knows_current = d_item_.id == w_item_.id &&
+		    std::any_of(d_meta_.videos.begin(), d_meta_.videos.end(),
+		        [this](const Video& video) { return video.id == w_video_id_; });
+		for (const auto& entry : downloads_.snapshot()) {
+			if (entry.state != DownloadState::Complete || entry.recovery_only || entry.media_id != current->media_id ||
+			    entry.id == current->id || entry.video_id.empty() || entry.local_path.empty()) continue;
+			const bool follows = expected ? entry.video_id == expected->id : !metadata_knows_current &&
+			    current->season >= 0 && current->episode > 0 && entry.season == current->season &&
+			    int64_t(entry.episode) == int64_t(current->episode) + 1;
+			if (!follows) continue;
+			local_video = expected ? *expected : Video{};
+			local_video.id = entry.video_id;
+			local_video.season = entry.season; local_video.episode = entry.episode;
+			local_video.raw["season"] = entry.season;
+			if (local_video.title.empty()) {
+				const auto separator = entry.subtitle.find(" · ");
+				local_video.title = separator == std::string::npos ? entry.subtitle : entry.subtitle.substr(separator + 4);
+			}
+			next_episode_download_id_ = entry.id;
+			local_art = entry.background_path.empty() ? entry.poster_path : entry.background_path;
+			next = &local_video;
+			break;
+		}
+	} else {
+		if (view != "detail" || w_item_.id != d_item_.id) return;
+		next = detail_next_episode(w_video_id_);
+	}
+	if (!next) return;
+	next_episode_id_ = next->id;
+	next_episode_series_ = w_item_.id;
+	next_episode_from_ = w_video_id_;
+	next_episode_account_generation_ = account_generation_;
+	next_episode_title = next->title.empty() ? (settings_.ui_language == "it" ? "Episodio" : "Episode") : next->title;
+	next_episode_label = next->season > 0 ? "S" + std::to_string(next->season) :
+	    next->season == 0 && jobj(next->raw, "season").is_number() ? (settings_.ui_language == "it" ? "Speciale" : "Special") : "";
+	if (next->episode > 0) next_episode_label += (next_episode_label.empty() ? "" : " · ") +
+	    std::string(settings_.ui_language == "it" ? "Episodio " : "Episode ") + std::to_string(next->episode);
+	const std::string thumbnail = next->thumbnail.empty() ? d_item_.background : next->thumbnail;
+	next_episode_thumb = w_offline_ ? local_art :
+	    g_art.get_async(thumbnail, ArtKind::Thumb, {}, ArtPriority::Immediate, this);
+	next_episode_seconds = std::clamp(settings_.next_episode_delay_seconds, 5, 120);
+	next_episode_deadline_ = now_seconds() + next_episode_seconds;
+	next_episode_sel = 0;
+	next_episode_visible = true;
+	info_visible = menu_visible = launch_visible = t_visible = w_buffering = false;
+	w_sub_rml.clear();
+	w_sub_shown_.clear();
+	dirty_all();
+}
+
+void App::watch_cancel_next_episode() {
+	next_episode_visible = false;
+	next_episode_seconds = 0;
+	next_episode_deadline_ = 0;
+	next_episode_id_.clear();
+	next_episode_series_.clear();
+	next_episode_from_.clear();
+	next_episode_download_id_.clear();
+	next_episode_thumb.clear();
+}
+
+void App::watch_next_episode_tick() {
+	if (!next_episode_visible) return;
+	if (download_relocation_active()) {
+		if (watching_ && w_ended_handled_) watch_stop(true);
+		else watch_cancel_next_episode();
+		return;
+	}
+	const bool local = !next_episode_download_id_.empty();
+	if (!watching_ || !settings_.autoplay_next || (!local && view != "detail") ||
+	    next_episode_account_generation_ != account_generation_ ||
+	    next_episode_series_ != w_item_.id || (!local && next_episode_series_ != d_item_.id) ||
+	    next_episode_from_ != w_video_id_) {
+		if (watching_ && w_ended_handled_) watch_stop(true);
+		else watch_cancel_next_episode();
+		return;
+	}
+	const int seconds = std::max(0, int(std::ceil(next_episode_deadline_ - now_seconds())));
+	if (next_episode_seconds != seconds) { next_episode_seconds = seconds; dirty_all(); }
+	// Cached lookups refresh the art without retaining a pointer into metadata
+	// or a callback able to paint a different episode after the card is closed.
+	if (!local && next_episode_thumb.empty()) {
+		const auto found = std::find_if(d_meta_.videos.begin(), d_meta_.videos.end(),
+		    [this](const Video& video) { return video.id == next_episode_id_; });
+		if (found != d_meta_.videos.end()) {
+			next_episode_thumb = g_art.peek_cached(found->thumbnail.empty() ? d_item_.background : found->thumbnail, ArtKind::Thumb);
+			if (!next_episode_thumb.empty()) dirty_all();
+		}
+	}
+	if (seconds == 0) watch_next_episode();
+}
+
+void App::watch_next_episode_button(Btn button) {
+	if (!next_episode_visible) return;
+	if (button == Btn::Circle || (button == Btn::Cross && next_episode_sel == 1)) {
+		watch_stop(true);
+		return;
+	}
+	if (button == Btn::Left || button == Btn::Right) {
+		next_episode_sel = button == Btn::Right ? 1 : 0;
+		dirty_all();
+	} else if (button == Btn::Cross) watch_next_episode();
+}
+
+void App::watch_next_episode() {
+	if (!next_episode_visible) return;
+	if (download_relocation_active()) {
+		if (watching_ && w_ended_handled_) watch_stop(true);
+		else watch_cancel_next_episode();
+		return;
+	}
+	const std::string id = next_episode_id_;
+	const std::string download_id = next_episode_download_id_;
+	const bool local = !download_id.empty();
+	const bool valid = next_episode_account_generation_ == account_generation_ &&
+	    next_episode_series_ == w_item_.id && next_episode_from_ == w_video_id_ &&
+	    (local || (view == "detail" && next_episode_series_ == d_item_.id));
+	const std::string binge = w_stream_.binge_group;
+	const std::string addon = w_stream_.addon_url.empty() ? w_stream_.addon : w_stream_.addon_url;
+	watch_stop(true);
+	if (!valid) return;
+	if (local) {
+		const auto entry = downloads_.find(download_id);
+		if (entry && entry->state == DownloadState::Complete && entry->video_id == id && !entry->recovery_only)
+			start_download_playback(download_id, false, 0);
+		return;
+	}
+	if (!detail_select_episode(id)) return;
 	autoplay_pending_ = true;
-	autoplay_binge_ = w_stream_.binge_group;
-	autoplay_addon_ = w_stream_.addon_url.empty() ? w_stream_.addon : w_stream_.addon_url;
+	autoplay_binge_ = binge;
+	autoplay_addon_ = addon;
 	d_zone = "streams";
-	detail_load_streams(next.id);
-	show_toast("Next: S" + std::to_string(next.season) + "E" + std::to_string(next.episode) +
-	           (next.title.empty() ? "" : " · " + next.title));
+	detail_load_streams(id);
 	dirty_all();
 }

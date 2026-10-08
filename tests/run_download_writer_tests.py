@@ -16,7 +16,7 @@ import time
 
 HEADER = struct.Struct("<IHHIIIIiIqqQQ")
 MAGIC = 0x31574453
-VERSION = 2
+VERSION = 3
 BLOCK = 4 << 20
 BEGIN, WRITE, CHECKPOINT, CLOSE, RESPONSE = range(1, 6)
 checks = 0
@@ -50,6 +50,7 @@ class Client:
         self.sequence = 0
         self.offset = 0
         self.total = 0
+        self.root = str(root)
 
     def stop(self):
         self.socket.close()
@@ -103,9 +104,12 @@ class Client:
         check(reply[5] == sequence and reply[10] == total, "reply matches request sequence and total")
         return reply
 
-    def begin(self, job_id, total, offset=0, fragmented=False):
+    def begin_payload(self, job_id, directory=None):
+        return job_id.encode() + b'\0' + str(directory or self.root).encode()
+
+    def begin(self, job_id, total, offset=0, fragmented=False, directory=None):
         self.total = total
-        reply = self.frame(BEGIN, job_id.encode(), offset=offset, fragmented=fragmented)
+        reply = self.frame(BEGIN, self.begin_payload(job_id, directory), offset=offset, fragmented=fragmented)
         check(reply[7] == 0, "begin succeeded")
         check(reply[9] in (0, offset), "begin returned only a validated candidate prefix")
         self.offset = reply[9]
@@ -267,7 +271,7 @@ def main():
             first.write(b"live")
             with client() as second:
                 second.total = 64
-                rejected(second, BEGIN, name.encode(), offset=0)
+                rejected(second, BEGIN, second.begin_payload(name), offset=0)
             check((folder / "media.part").read_bytes() == b"live", "conflicting begin did not truncate a live file")
             first.checkpoint()
             first.close()
@@ -334,19 +338,56 @@ def main():
         (folder / "media.part").symlink_to(target)
         with client() as connection:
             connection.total = 64
-            rejected(connection, BEGIN, name.encode())
+            rejected(connection, BEGIN, connection.begin_payload(name))
         check(target.read_bytes() == b"untouched", "media symlink target was untouched")
         name, folder = job()
         folder.rmdir()
         folder.symlink_to(outside, target_is_directory=True)
         with client() as connection:
             connection.total = 64
-            rejected(connection, BEGIN, name.encode())
+            rejected(connection, BEGIN, connection.begin_payload(name))
         check(not (outside / "media.part").exists(), "job symlink did not redirect creation")
         with client() as connection:
             connection.total = 64
-            rejected(connection, BEGIN, b"d../" + b"0" * 29)
+            rejected(connection, BEGIN, connection.begin_payload("d../" + "0" * 29))
         scenarios.append("invalid job ID and symlink refusal")
+
+        selected = root / 'mnt' / 'ext1' / 'Stremio Plus Downloads'
+        selected.mkdir(parents=True)
+        name, old_folder = job()
+        old_folder.rmdir()
+        selected_job = selected / name
+        selected_job.mkdir()
+        expected = data_bytes(8193)
+        with client() as connection:
+            connection.begin(name, len(expected), directory=selected)
+            connection.checkpoint()
+            connection.write(expected)
+            connection.checkpoint()
+            connection.close()
+        check((selected_job / 'media.part').read_bytes() == expected,
+              'selected destination receives the exact video bytes')
+        check(not old_folder.exists(), 'writer never recreates the old default destination')
+        with client() as connection:
+            connection.begin(name, len(expected) + 1, offset=len(expected), directory=selected)
+            connection.checkpoint()
+            connection.write(b'!')
+            connection.checkpoint()
+            connection.close()
+        check((selected_job / 'media.part').read_bytes() == expected + b'!',
+              'selected destination retains durable resume offsets')
+        scenarios.append('selected mounted-volume destination, exact bytes and resume')
+
+        redirect = root / 'redirect'
+        redirect.symlink_to(selected, target_is_directory=True)
+        for invalid in (str(redirect), str(root) + '/mnt/../mnt/ext1/Stremio Plus Downloads',
+                        str(root) + '//mnt', str(root) + '/mnt\0ignored'):
+            with client() as connection:
+                connection.total = len(expected) + 1
+                rejected(connection, BEGIN, connection.begin_payload(name, invalid))
+        check((selected_job / 'media.part').read_bytes() == expected + b'!',
+              'redirected and noncanonical selected paths never truncate an existing video')
+        scenarios.append('selected directory symlink and traversal refusal')
 
         report = {"checks": checks, "scenarios": scenarios, "passed": True,
                   "helper_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),

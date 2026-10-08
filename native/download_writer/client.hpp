@@ -39,6 +39,7 @@ public:
     Client& operator=(const Client&) = delete;
 
     bool begin(std::string_view job_id, std::int64_t candidate, std::int64_t total);
+    bool begin(std::string_view directory, std::string_view job_id, std::int64_t candidate, std::int64_t total);
     bool write(const void* data, std::size_t bytes);
     bool checkpoint(std::string_view state, CommitTimes& timings);
     bool close();

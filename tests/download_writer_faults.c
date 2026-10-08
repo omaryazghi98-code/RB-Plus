@@ -31,7 +31,12 @@ ssize_t write(int fd, const void *data, size_t size) {
     const char *limit_text = getenv("STREMIO_TEST_WRITE_LIMIT");
     if (fd > STDERR_FILENO && limit_text) {
         const uint64_t limit = strtoull(limit_text, NULL, 10);
-        if (media_bytes >= limit) { errno = EIO; return -1; }
+        if (media_bytes >= limit) {
+            const char *error_text = getenv("STREMIO_TEST_WRITE_ERRNO");
+            errno = error_text ? atoi(error_text) : EIO;
+            if (errno <= 0) errno = EIO;
+            return -1;
+        }
         if (size > limit - media_bytes) size = (size_t)(limit - media_bytes);
     }
     const ssize_t written = real_write(fd, data, size);

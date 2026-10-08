@@ -22,6 +22,7 @@
 #include "gfx/renderer.hpp"
 #include "platform/ps5/system.hpp"
 #include "ui/components/component.hpp"
+#include "ui/glyphs.hpp"
 
 #include <SDL.h>
 #include <GL/glcorearb.h>
@@ -33,6 +34,7 @@ extern "C" {
 #include "platform/ps5/pad.hpp"
 #include "display_output.h"
 #include "ps5_storage.h"
+#include "ui_language.h"
 extern "C" void ps5_load_modules(void);
 #else
 #include "preview_fixture.h"
@@ -102,7 +104,7 @@ Options options(int argc, char** argv) {
     Options o;
     o.base = find_base(argc ? argv[0] : nullptr);
 #ifdef PLATFORM_PS5
-    o.data = "/download0/stremio";
+    o.data = "/data/Stremio/appdata";
 #else
     const char* account_home = std::getenv("HOME");
     o.data = std::string(account_home ? account_home : ".") + "/.stremio-ps5";
@@ -229,6 +231,68 @@ bool load_font(hui::gfx::Renderer& renderer, const std::string& path,
     ref.texture = renderer.batch().create_font_texture(font);
     return ref.texture != 0;
 }
+
+#ifdef PLATFORM_PS5
+// Storage failure is shown before an account or any cache worker is opened.
+// Retrying never interprets unreadable settings as a new, signed-out account.
+bool storage_error_screen(const Options& o, const Ps5StoragePaths& storage) {
+    Surface surface;
+    if (!surface.open(o, 0)) return false;
+    hui::gfx::Renderer renderer;
+    if (!renderer.init()) return false;
+    hui::gfx::Font regular, semibold;
+    hui::ui::Fonts fonts;
+    if (!load_font(renderer, o.base + "/hui/fonts/inter-regular.huifont", regular, fonts.regular) ||
+        !load_font(renderer, o.base + "/hui/fonts/inter-semibold.huifont", semibold, fonts.semibold)) return false;
+    fonts.display = fonts.semibold;
+    fonts.mono = fonts.pixel = fonts.hand = fonts.regular;
+    const bool italian = platform_ui_language() == "it";
+    const std::string detail = std::string(storage.data_error ? storage.data_error : "storage") +
+        " (errno " + std::to_string(storage.data_errno) + ")";
+    hui::ps5::Pad pad;
+    if (!pad.open()) dlog("Controller unavailable on storage recovery screen");
+    hui::InputTracker tracker;
+    hui::gfx::DrawList list;
+    bool first = true;
+    while (true) {
+        const auto now = hui::sys::monotonic_us();
+        std::array<hui::PadSample, 64> samples;
+        const auto count = pad.read(samples);
+        const auto input = tracker.update(std::span<const hui::PadSample>(samples.data(), count), std::uint64_t(now));
+        if (input.pressed & hui::action_bit(hui::Action::back)) return false;
+        if (input.pressed & hui::action_bit(hui::Action::confirm)) return true;
+        list.clear();
+        list.gradient_rect({0, 0, kWidth, kHeight}, 0,
+            hui::gfx::Color::rgb(0x181127), hui::gfx::Color::rgb(0x070910));
+        const auto white = hui::gfx::Color::rgb(0xf5f3ff);
+        const auto muted = hui::gfx::Color::rgb(0xc2bfd0);
+        list.text(semibold, fonts.semibold.texture,
+            italian ? "Cartella dati non disponibile" : "App storage is unavailable", 140, 338, 56, white);
+        list.text(regular, fonts.regular.texture, "/data/Stremio/appdata", 140, 426, 32, white);
+        list.text(regular, fonts.regular.texture,
+            italian ? "Verifica lo spazio libero e l'accesso a /data/Stremio." :
+                      "Check free space and filesystem access to /data/Stremio.", 140, 510, 30, muted);
+        list.text(regular, fonts.regular.texture,
+            italian ? "Poi riprova. Account e download esistenti vengono conservati." :
+                      "Then retry. Your existing account and downloads are preserved.", 140, 558, 30, muted);
+        list.text(regular, fonts.regular.texture, detail, 140, 644, 23, muted);
+        const hui::ui::Hint hints[] = {
+            {hui::ui::Button::cross, italian ? "Riprova" : "Retry"},
+            {hui::ui::Button::circle, italian ? "Esci" : "Exit"}};
+        hui::ui::draw_hints(list, fonts, hui::ui::GlyphStyle::dark(), hints, 2, 140, false);
+        renderer.begin(); renderer.draw(list);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glClearColor(0, 0, 0, 1); glClear(GL_COLOR_BUFFER_BIT);
+        renderer.present(0, surface.width, surface.height);
+        if (!surface.swap()) return false;
+        if (first) {
+            first = false;
+            hui::sys::hide_splash_screen();
+            boot_step("storage recovery screen presented");
+        }
+    }
+}
+#endif
 
 struct InterfaceAudio {
     hui::audio::Mixer mixer;
@@ -590,7 +654,7 @@ int main(int argc, char** argv) {
 #ifdef PLATFORM_PS5
     // The supplied framework requires this before application worker creation.
     // It makes /data/Stremio usable and resolves app/data paths after the grant.
-    const auto native_storage = ps5_prepare_storage();
+    auto native_storage = ps5_prepare_storage();
 #endif
     boot_step("entered application main");
     std::signal(SIGPIPE, SIG_IGN);
@@ -607,7 +671,9 @@ int main(int argc, char** argv) {
     if (o.snapshot.empty() && !claim_single_instance()) return 0;
     if (!o.snapshot.empty()) SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
 #endif
+#ifndef PLATFORM_PS5
     make_dirs(o.data);
+#endif
 #ifdef PLATFORM_PS5
     const std::string log_directory = native_storage.logs;
 #else
@@ -617,7 +683,7 @@ int main(int argc, char** argv) {
 #ifdef PLATFORM_PS5
     // Do not let the generic recursive mkdir create a sandbox-local /data
     // when the console's real filesystem was not made available.
-    const bool diagnostics_ready = native_storage.logs_available && diagnostics_start(log_directory);
+    bool diagnostics_ready = native_storage.logs_available && diagnostics_start(log_directory);
 #else
     const bool diagnostics_ready = diagnostics_start(log_directory);
 #endif
@@ -639,6 +705,18 @@ int main(int argc, char** argv) {
     if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_TIMER | SDL_INIT_EVENTS) != 0) {
         dlog("SDL initialization failed: %s", SDL_GetError());
     } else {
+#ifdef PLATFORM_PS5
+        while (!native_storage.data_available) {
+            dlog("App storage unavailable: stage=%s errno=%d", native_storage.data_error, native_storage.data_errno);
+            if (!storage_error_screen(o, native_storage)) break;
+            native_storage = ps5_prepare_storage();
+            o.base = native_storage.app;
+            o.data = native_storage.data;
+            if (!diagnostics_ready && native_storage.logs_available)
+                diagnostics_ready = diagnostics_start(native_storage.logs);
+        }
+        if (native_storage.data_available) {
+#endif
         boot_step("initializing HTTP and application workers");
         http_init(o.base + "/ca-bundle.crt");
         g_tasks.start(4);
@@ -665,6 +743,9 @@ int main(int argc, char** argv) {
         g_art.stop();
         g_tasks.stop();
         bt::Engine::get().shutdown();
+#ifdef PLATFORM_PS5
+        }
+#endif
         SDL_Quit();
     }
     diagnostics_note("lifecycle", result ? "Application stopped with an error" : "Clean application shutdown");

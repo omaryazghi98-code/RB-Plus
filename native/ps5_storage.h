@@ -3,12 +3,16 @@
 
 struct Ps5StoragePaths {
     const char* app = "/app0";
-    const char* data = "/download0/stremio";
+    const char* data = "/data/Stremio/appdata";
     const char* logs = "/data/Stremio";
+    // Fixed operation names only. No account data or filesystem contents.
+    const char* data_error = "";
+    int data_errno = 0;
     int filesystem_status = 0;
     bool helper_requested = false;
     bool filesystem_available = false;
     bool logs_available = false;
+    bool data_available = false;
 };
 
 // Called once while main still has no application workers. Requests the same

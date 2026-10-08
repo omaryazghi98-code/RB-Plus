@@ -29,6 +29,8 @@ struct Fake {
 	bool failure = false, malformed = false, throws = false;
 	bool hold_progress = false, progress_release = false;
 	bool periodic_progress = false;
+	int storage_error = 0;
+	bool fail_completion_save = false;
 	int64_t offset = 0, progress_done = 4096;
 	int64_t cancelled_prefix = -1, cancelled_file_size = -1;
 	DownloadTransferRequest last;
@@ -37,10 +39,14 @@ std::mutex fake_mutex;
 std::condition_variable fake_changed;
 std::map<std::string, std::shared_ptr<Fake>> fakes;
 int checks = 0, failures = 0;
-std::atomic<int> fail_lstat{0}, fail_opendir{0}, fail_chmod{0}, fail_fchmod{0}, fail_write{0}, fail_sync{0};
+std::atomic<int> fail_lstat{0}, fail_opendir{0}, fail_mkdir{0}, fail_chmod{0}, fail_fchmod{0}, fail_write{0}, fail_sync{0};
 std::string denied_path;
 std::atomic<bool> hold_manifest_sync{false}, manifest_sync_entered{false}, release_manifest_sync{true};
 std::atomic<unsigned> manifest_sync_count{0};
+std::atomic<unsigned> injected_write_failures{0};
+std::atomic<bool> hold_registry_sync{false}, registry_sync_entered{false}, release_registry_sync{true}, fail_registry_sync{false};
+std::atomic<unsigned> injected_mkdir_failures{0};
+std::atomic<bool> ignore_successful_fchmod{false};
 thread_local bool ui_polling = false;
 std::atomic<unsigned> ui_storage_calls{0};
 
@@ -132,9 +138,29 @@ void storage_permissions_and_retry(const fs::path& data) {
 	check(manager.enqueue(request("permission-retry"), error).empty() && !manager.storage_available(),
 		"explicit shutdown cannot be undone by a later enqueue");
 
+	::chmod(data.c_str(), 0777); ::chmod((data / "downloads").c_str(), 0777);
 	denied_path = (data / "downloads").string(); fail_chmod = EPERM;
-	check(!manager.init(data.string(), &error) && error.find("chmod") != std::string::npos &&
-		error.find(denied_path) != std::string::npos, "private directory chmod denial is diagnosed without weakening permissions");
+	check(manager.init(data.string(), &error) && error.empty(),
+		"an existing user-configured directory does not require or attempt chmod");
+	::stat(data.c_str(), &st);
+	check((st.st_mode & 0777) == 0777, "the existing application data directory keeps its user-set mode");
+	::stat((data / "downloads").c_str(), &st);
+	check((st.st_mode & 0777) == 0777, "initialization and restart preserve the existing 0777 download directory");
+	manager.shutdown();
+	fail_chmod = 0; fail_mkdir = EROFS; fail_write = EROFS;
+	const auto mkdir_failures = injected_mkdir_failures.load();
+	check(!manager.init(data.string(), &error) && manager.storage_readable() &&
+		state(manager, id, DownloadState::Complete) && injected_mkdir_failures.load() == mkdir_failures,
+		"a readable existing download root never calls mkdir even when the backend rejects mutations with EROFS");
+	manager.shutdown(); fail_mkdir = 0; fail_write = 0; fail_chmod = EPERM;
+	const auto fresh = data / "fresh"; fs::create_directory(fresh);
+	denied_path = (fresh / "downloads").string();
+	{
+		DownloadManager private_manager;
+		check(!private_manager.init(fresh.string(), &error) && error.find("chmod") != std::string::npos,
+			"chmod denial is still reported for a newly created private directory");
+	}
+	denied_path = (data / "downloads").string();
 	fail_chmod = 0; fail_fchmod = EPERM;
 	check(!manager.init(data.string(), &error) && error.find("fchmod") != std::string::npos,
 		"write probe detects file permission denial before reporting storage ready");
@@ -159,6 +185,179 @@ void storage_permissions_and_retry(const fs::path& data) {
 	check(denied && recovered_id == id && error.empty() && manager.storage_available() &&
 		manager.snapshot().size() == 1 && state(manager, id, DownloadState::Complete),
 		"unlistable inventory rejects readiness with precise errno and retry preserves the completed entry");
+	manager.shutdown();
+}
+
+int64_t allocated_bytes(const fs::path& directory) {
+	int64_t total = 0;
+	for (const auto& file : fs::directory_iterator(directory)) {
+		struct stat st{};
+		if (::lstat(file.path().c_str(), &st) == 0 && S_ISREG(st.st_mode)) total += st.st_blocks * 512;
+	}
+	return total;
+}
+
+void full_storage_inventory(const fs::path& data) {
+	fs::create_directories(data);
+	DownloadManager manager; std::string error;
+	const auto partial_plan = plan("stored-partial");
+	check(manager.init(data.string()), "full-storage fixture initially creates writable storage");
+	const auto partial_id = manager.enqueue(request("stored-partial", true), error);
+	const auto complete_id = manager.enqueue(request("stored-complete"), error);
+	manager.shutdown();
+	const auto root = data / "downloads";
+	const auto partial = root / partial_id, complete = root / complete_id;
+	auto pending = manifest(partial / "manifest.json");
+	pending["state"] = static_cast<int>(DownloadState::Downloading); pending["done"] = 1024; pending["total"] = 8192;
+	pending["artwork_pending"] = true;
+	write(partial / "manifest.json", pending.dump()); write(partial / "media.part", std::string(4096, 'p'));
+	const auto checkpoint = json{{"version", 1}, {"kind", "torrent"}, {"source", std::string(40, 'b') + ":4"},
+		{"bytes", 2048}, {"total", 8192}, {"extension", ".mp4"}}.dump();
+	write(partial / "transfer.json", checkpoint);
+	auto finished = manifest(complete / "manifest.json");
+	finished["state"] = static_cast<int>(DownloadState::Complete); finished["done"] = finished["total"] = 8192;
+	finished["media_name"] = "media.mp4"; finished["artwork_pending"] = false;
+	write(complete / "manifest.json", finished.dump()); write(complete / "media.mp4", std::string(8192, 'v'));
+
+	const auto bad_id = 'd' + std::string(32, 'a'), missing_id = 'd' + std::string(32, 'c');
+	const auto backup_id = 'd' + std::string(32, 'e'), temporary_id = 'd' + std::string(32, 'f');
+	const auto locked_id = 'd' + std::string(32, '1');
+	for (const auto& id : {bad_id, missing_id, backup_id, temporary_id, locked_id}) fs::create_directory(root / id);
+	write(root / bad_id / "manifest.json", "{damaged"); write(root / bad_id / "media.part", std::string(1024, 'b'));
+	write(root / missing_id / "media.part", std::string(3072, 'm'));
+	const auto outside = data / "outside.bin"; write(outside, std::string(16384, 'o'));
+	fs::create_symlink(outside, root / missing_id / "outside-link");
+	auto backup = pending; backup["id"] = backup_id; backup["title"] = "Saved backup title";
+	backup["artwork_pending"] = false; backup["removing"] = true;
+	write(root / backup_id / "manifest.json", "broken"); write(root / backup_id / "manifest.json.bak", backup.dump());
+	write(root / backup_id / "media.part", std::string(2048, 'r'));
+	auto temporary = backup; temporary["id"] = temporary_id; temporary["title"] = "Saved temporary title";
+	const auto temporary_bytes = temporary.dump();
+	write(root / temporary_id / "manifest.json.tmp", temporary_bytes);
+	write(root / temporary_id / "media.part", std::string(4096, 't'));
+	write(root / locked_id / "media.part", std::string(2048, 'l'));
+	const auto bad_size = allocated_bytes(root / bad_id), missing_size = allocated_bytes(root / missing_id);
+	denied_path = (root / locked_id).string(); fail_opendir = EACCES; fail_write = ENOSPC;
+	check(!manager.init(data.string(), &error) && !manager.storage_available() && manager.storage_readable() &&
+		error.find("errno " + std::to_string(ENOSPC)) != std::string::npos,
+		"full storage reports unavailable writes while retaining readable inventory");
+	check(manager.snapshot().size() == 7, "full storage publishes valid, backup, temporary and orphaned jobs together");
+	const auto part = manager.find(partial_id), movie = manager.find(complete_id);
+	check(part && !part->recovery_only && part->state == DownloadState::Paused && part->done == 4096 && part->local_path.empty(),
+		"an interrupted partial remains visible and paused on full storage");
+	check(movie && movie->state == DownloadState::Complete && movie->local_path == (complete / "media.mp4").string(),
+		"a validated completed video remains playable on full storage");
+	const auto bad = manager.find(bad_id), missing = manager.find(missing_id), locked = manager.find(locked_id);
+	check(bad && bad->recovery_only && bad->disk_bytes == bad_size && bad->local_path.empty() && bad->media_id.empty(),
+		"malformed metadata exposes allocated bytes without inventing a video identity or playable file");
+	check(missing && missing->recovery_only && missing->disk_bytes == missing_size && !missing->playable_while_downloading,
+		"missing metadata remains manageable and storage accounting never follows a symlink");
+	check(locked && locked->recovery_only && locked->disk_bytes == -1,
+		"an unreadable owned folder remains visible with unknown occupied space");
+	check(manager.find(backup_id) && manager.find(backup_id)->title == "Saved backup title" &&
+		manager.find(temporary_id) && manager.find(temporary_id)->title == "Saved temporary title",
+		"valid backup and temporary metadata recover their recorded titles without automatic deletion");
+	check(!manager.resume(missing_id) && !manager.pause(missing_id) && !manager.update_poster_source(missing_id, "https://example.invalid/poster.jpg"),
+		"recovery-only entries cannot start transfers, pause or receive guessed artwork");
+	const auto failures_before = injected_write_failures.load();
+	manager.set_enabled(true); std::this_thread::sleep_for(200ms);
+	check(injected_write_failures.load() == failures_before && inspect(partial_plan, [](const Fake& fake) { return fake.starts == 0; }),
+		"full storage does not repeatedly retry metadata, artwork or queued transfers");
+	check(!manager.resume(partial_id) && bytes(partial / "media.part") == std::string(4096, 'p') &&
+		bytes(partial / "transfer.json") == checkpoint,
+		"a failed explicit resume preserves every partial byte and the last durable transfer checkpoint");
+	check(manager.remove(partial_id, error) && error.empty(), "explicit deletion is accepted when its intent manifest cannot be allocated");
+	check(until([&] { return !fs::exists(partial); }) && manager.find(complete_id).has_value(),
+		"full-storage deletion removes only the selected partial and retains other downloads");
+	check(manager.remove(bad_id, error) && until([&] { return !fs::exists(root / bad_id); }),
+		"malformed owned storage can be deleted without requiring valid metadata");
+	manager.shutdown();
+	check(bytes(root / temporary_id / "manifest.json.tmp") == temporary_bytes,
+		"a failed shutdown save preserves the only valid recovered temporary manifest");
+	check(!fs::exists(root / missing_id / "manifest.json") && !fs::exists(root / locked_id / "manifest.json"),
+		"shutdown never creates invented metadata for recovery-only folders");
+	fail_write = 0; fail_opendir = 0;
+	check(manager.init(data.string()) && manager.find(complete_id)->state == DownloadState::Complete,
+		"writable storage can recover without losing the completed offline video");
+	check(manager.remove(missing_id, error) && until([&] { return !fs::exists(root / missing_id); }) &&
+		bytes(outside) == std::string(16384, 'o'), "explicit orphan deletion unlinks symlinks without deleting their targets");
+	manager.shutdown();
+	fail_write = EROFS;
+	check(!manager.init(data.string()) && manager.storage_readable() && manager.find(complete_id)->state == DownloadState::Complete,
+		"read-only storage also preserves the readable offline library");
+	manager.shutdown(); fail_write = 0;
+}
+
+void completion_reconciliation(const fs::path& data) {
+	fs::create_directories(data);
+	DownloadManager manager; std::string error;
+	check(manager.init(data.string()), "completion reconciliation fixture initializes");
+	auto selected = request("completion-recovery", true); selected.stream.file_idx = 4;
+	const auto id = manager.enqueue(selected, error); manager.shutdown();
+	const auto folder = data / "downloads" / id;
+	auto value = manifest(folder / "manifest.json");
+	value["state"] = static_cast<int>(DownloadState::Downloading); value["done"] = 4096; value["total"] = 8192;
+	value["media_name"] = ""; value["artwork_pending"] = false;
+	auto checkpoint = json{{"version", 1}, {"kind", "torrent"}, {"source", selected.stream.info_hash + ":4"},
+		{"bytes", 8192}, {"total", 8192}, {"extension", ".mp4"}};
+	write(folder / "manifest.json", value.dump()); write(folder / "transfer.json", checkpoint.dump());
+	write(folder / "media.mp4", std::string(8192, 'c'));
+	check(manager.init(data.string()) && state(manager, id, DownloadState::Complete) &&
+		manager.find(id)->local_path == (folder / "media.mp4").string(),
+		"a promoted torrent file is reconciled only with exact durable total and selected source identity");
+	manager.shutdown();
+	checkpoint["source"] = selected.stream.info_hash + ":5";
+	write(folder / "manifest.json", value.dump()); write(folder / "transfer.json", checkpoint.dump());
+	check(manager.init(data.string()) && !state(manager, id, DownloadState::Complete) && manager.find(id)->local_path.empty(),
+		"a checkpoint for another torrent file cannot prove completion");
+	manager.shutdown();
+	checkpoint["source"] = selected.stream.info_hash + ":4"; checkpoint["bytes"] = 4096;
+	write(folder / "manifest.json", value.dump()); write(folder / "transfer.json", checkpoint.dump());
+	check(manager.init(data.string()) && manager.find(id)->local_path.empty(), "a partial checkpoint cannot promote a full-length final file");
+	manager.shutdown();
+	checkpoint["bytes"] = 8192; write(folder / "transfer.json", checkpoint.dump());
+	fs::rename(folder / "media.mp4", folder / "media.part"); write(folder / "manifest.json", value.dump());
+	check(manager.init(data.string()) && state(manager, id, DownloadState::Paused) && manager.find(id)->local_path.empty(),
+		"a full-size part remains paused until the transfer completes its final promotion");
+	manager.shutdown();
+}
+
+void transfer_storage_failure(const fs::path& data) {
+	fs::create_directories(data);
+	DownloadManager manager; std::string error;
+	const auto first = plan("media-storage-error"), second = plan("queued-storage-error");
+	check(manager.init(data.string()), "transfer storage failure fixture initializes");
+	const auto first_id = manager.enqueue(request("media-storage-error", true), error);
+	auto second_request = request("queued-storage-error", true); second_request.stream.info_hash = std::string(40, 'c');
+	const auto second_id = manager.enqueue(second_request, error);
+	manager.set_enabled(true);
+	check(until([&] { return inspect(first, [](const Fake& f) { return f.progress_calls > 0; }); }),
+		"the selected transfer starts before its storage failure is injected");
+	const auto revision = manager.revision();
+	change(first, [](Fake& f) { f.storage_error = ENOSPC; f.release = true; });
+	check(until([&] { return state(manager, first_id, DownloadState::Failed) && !manager.storage_available(); }) &&
+		manager.storage_readable() && manager.revision() > revision,
+		"a transfer's storage errno blocks further writes and publishes the capability change");
+	check(state(manager, second_id, DownloadState::Paused) && inspect(second, [](const Fake& f) { return f.starts == 0; }),
+		"queued downloads do not start after the preceding transfer exhausted storage");
+	change(first, [](Fake& f) { f.storage_error = 0; });
+	check(manager.resume(first_id) && until([&] { return state(manager, first_id, DownloadState::Complete); }),
+		"explicit resume rechecks recovered write access before restarting the same source");
+	manager.set_enabled(false); manager.shutdown();
+
+	const auto completion = plan("completion-storage-error", true);
+	change(completion, [](Fake& f) { f.fail_completion_save = true; });
+	check(manager.init(data.string()), "completion metadata failure fixture initializes");
+	const auto complete_id = manager.enqueue(request("completion-storage-error"), error);
+	manager.set_enabled(true);
+	check(until([&] { return state(manager, complete_id, DownloadState::Complete) && !manager.storage_available(); }),
+		"a proved complete local video stays complete when only its final metadata save fails");
+	const auto saved = manager.find(complete_id);
+	check(saved && !saved->local_path.empty() && fs::is_regular_file(saved->local_path) && fs::file_size(saved->local_path) == 8192,
+		"failure to save completion metadata does not hide or remove the completed media");
+	fail_write = 0; manager.set_enabled(false); manager.shutdown();
+	check(manager.init(data.string()) && state(manager, complete_id, DownloadState::Complete),
+		"completion metadata persists once writes recover and survives restart");
 	manager.shutdown();
 }
 
@@ -478,6 +677,7 @@ void snapshot_during_slow_storage(const fs::path& data) {
 			const auto list = manager.snapshot(); const auto selected = manager.find(id);
 			if (list.size() != 1 || !selected || selected->id != id || selected->done != 6144 ||
 				selected->remaining_seconds != 10 || selected->connected_peers != 3 || selected->connected_seeders != 2 ||
+				!manager.storage_available() || !manager.storage_readable() || !manager.storage_error().empty() ||
 				!manager.update_poster(id, cover.string()) || !manager.update_poster_source(id, "https://art.invalid/refreshed.jpg"))
 				return false;
 		}
@@ -503,6 +703,16 @@ void snapshot_during_slow_storage(const fs::path& data) {
 	check(until([&] { return inspect(running, [&](const Fake& f) { return f.progress_calls >= callbacks_before + 3; }); }, 1200) &&
 		manifest_sync_count.load() == stable_saves,
 		"waiting entry and late poster updates add no recurring manifest writes during active progress");
+	manifest_sync_entered = false; release_manifest_sync = false; hold_manifest_sync = true;
+	auto pause_write = std::async(std::launch::async, [&] { return manager.pause(id); });
+	check(until([] { return manifest_sync_entered.load(); }), "pause reaches a held metadata fsync under the storage mutex");
+	auto capabilities = std::async(std::launch::async, [&] {
+		return manager.storage_readable() && manager.storage_available() && manager.storage_error().empty();
+	});
+	const bool capabilities_ready = capabilities.wait_for(100ms) == std::future_status::ready;
+	release_manifest_sync = true; hold_manifest_sync = false;
+	check(capabilities_ready && capabilities.get() && pause_write.get(),
+		"UI storage capability and error queries remain responsive while the storage mutex is held by fsync");
 	manager.set_enabled(false);
 	check(manager.pause(id), "download remains pausable after slow storage resumes");
 	const auto paused = manager.find(id);
@@ -675,6 +885,118 @@ void torrent_arbitration(const fs::path& data) {
 	discarded_task_lease.reset();
 	check(true, "discarding a queued resolver after manager destruction releases its independent token safely");
 }
+void selected_directories(const fs::path& data) {
+ const auto internal = data / "internal", registry = data / "appdata", first = data / "external one", second = data / "external two";
+ for (const auto& path : {internal, registry, first, second}) fs::create_directories(path);
+ std::string error, legacy_id;
+ {
+  DownloadManager old; check(old.init(internal.string()), "legacy fixture initializes");
+  plan("old-location", true); legacy_id = old.enqueue(request("old-location"), error); old.set_enabled(true);
+  check(until([&] { return state(old, legacy_id, DownloadState::Complete); }), "legacy fixture completes before relocation");
+  old.shutdown();
+ }
+ DownloadManager manager;
+ check(!manager.init(internal.string(), registry.string(), "", &error) && manager.download_directory().empty(),
+  "fresh setup has no automatically selected download directory");
+ check(manager.find(legacy_id).has_value(), "legacy downloads remain visible before explicit selection");
+ check(manager.enqueue(request("unselected"), error).empty(), "enqueue requires an explicit destination");
+ write(first / ".storage-check", "unrelated user file");
+ fs::create_directory(first / "private-child"); ::chmod((first / "private-child").c_str(), 0700);
+ ::chmod(first.c_str(), 0700); ignore_successful_fchmod = true;
+ check(!manager.set_download_directory(first.string(), error) && error.find("0777 permissions") != std::string::npos &&
+  error.find("errno " + std::to_string(EPERM)) != std::string::npos,
+  "fchmod success without actual0777 is rejected with an actionable permissions error");
+ ignore_successful_fchmod = false;
+ check(manager.download_directory().empty() && !manager.relocation_status().pending &&
+  fs::exists(internal / "downloads" / legacy_id / "media.mp4") && !fs::exists(first / legacy_id),
+  "failed permission read-back cannot commit selection or move any original files");
+ check(manager.set_download_directory(first.string(), error) && manager.download_directory() == first.string(), "first selection migrates legacy files to the exact target");
+ check(manager.find(legacy_id)->local_path == (first / legacy_id / "media.mp4").string() &&
+  fs::exists(first / legacy_id / "media.mp4") && !fs::exists(internal / "downloads" / legacy_id), "completed legacy download is physically moved without retaining a copy");
+ check(bytes(first / ".storage-check") == "unrelated user file", "selection preserves unrelated user files");
+ struct stat selected_mode{}, child_mode{};
+ check(::stat(first.c_str(), &selected_mode) == 0 && (selected_mode.st_mode & 0777) == 0777 &&
+  ::stat((first / "private-child").c_str(), &child_mode) == 0 && (child_mode.st_mode & 0777) == 0700,
+  "explicit selection grants0777 only to the selected directory");
+ auto active = plan("selected-active"); change(active, [](Fake& fake) { fake.release_cancel = false; });
+ auto next = plan("selected-next", true); plan("selected-paused", true);
+ const auto active_id = manager.enqueue(request("selected-active"), error); manager.set_enabled(true);
+ check(until([&] { return inspect(active, [](const Fake& fake) { return fake.progress_calls >= 1; }); }), "first selected directory starts its transfer");
+ const auto next_id = manager.enqueue(request("selected-next"), error);
+ const auto paused_id = manager.enqueue(request("selected-paused"), error); check(manager.pause(paused_id), "queued job can be explicitly paused before migration");
+ hold_registry_sync = true; registry_sync_entered = false; release_registry_sync = false;
+ std::string move_error;
+ auto selection = std::async(std::launch::async, [&] { return manager.set_download_directory(second.string(), move_error); });
+ check(until([&] { return inspect(active, [](const Fake& fake) { return fake.cancel_seen; }); }), "relocation cooperatively cancels the active transfer");
+ check(fs::exists(first / active_id / "media.part") && !fs::exists(second / active_id) && selection.wait_for(20ms) == std::future_status::timeout,
+  "no source path changes until the writer acknowledges cancellation and returns");
+ check(manager.enqueue(request("during-move"), error).empty() && !manager.resume(paused_id) && !manager.pause(active_id) && !manager.remove(next_id, error),
+  "enqueue/resume/pause/removal mutations are blocked while relocating");
+ check(!manager.enqueue_async(request("async-during-move"), {}), "new asynchronous submissions are rejected while moving");
+ ui_polling = true; const auto snapshot = manager.snapshot(); const auto status = manager.relocation_status(); ui_polling = false;
+ check(snapshot.size() == 4 && status.active && status.destination == second.string() && ui_storage_calls == 0,
+  "published inventory and relocation progress need no UI filesystem operations");
+ change(active, [](Fake& fake) { fake.release_cancel = true; });
+ check(until([&] { return registry_sync_entered.load(); }), "registry becomes durable only after active writer quiescence");
+ ui_polling = true; const auto during = manager.download_directory(); const auto during_snapshot = manager.snapshot(); ui_polling = false;
+ check(during == first.string() && during_snapshot.size() == 4 && ui_storage_calls == 0, "slow registry fsync does not block published UI reads");
+ release_registry_sync = true;
+ check(selection.get() && move_error.empty() && manager.download_directory() == second.string(), "destination publishes after every download has moved");
+ check(!manager.relocation_status().active && !manager.relocation_status().pending && manager.relocation_status().files_done == 4,
+  "successful relocation publishes completed progress and clears pending state");
+ check(!fs::exists(first / active_id) && !fs::exists(first / next_id) && !fs::exists(first / paused_id) && !fs::exists(first / legacy_id),
+  "active/queued/paused/completed original directories are all retired");
+ check(until([&] { return inspect(active, [&](const Fake& fake) { return fake.starts == 2 && fake.last.work_dir == (second / active_id).string() && fake.offset == 4096; }); }),
+  "active transfer resumes from its preserved partial prefix in the new folder");
+ check(state(manager, paused_id, DownloadState::Paused), "explicitly paused jobs remain paused after moving");
+ change(active, [](Fake& fake) { fake.release = true; });
+ check(until([&] { return state(manager, active_id, DownloadState::Complete) && state(manager, next_id, DownloadState::Complete); }),
+  "active and previously queued work continue in the destination after migration");
+ check(manager.resume(paused_id) && until([&] { return state(manager, paused_id, DownloadState::Complete); }), "moved paused job can later resume normally");
+ const auto registry_path = registry / "download-directories.json";
+ check(manifest(registry_path)["roots"] == json::array({second.string()}) && manifest(registry_path.string() + ".bak")["roots"] == json::array({second.string()}),
+  "main and backup registry retain only the completed destination");
+ check(bytes(registry_path).find("PRIVATE-DOWNLOAD-TOKEN") == std::string::npos && bytes(registry / "download-relocation.json").empty(),
+  "registry is credential-free and completed journal is removed");
+ fail_registry_sync = true;
+ check(!manager.set_download_directory(first.string(), error) && !error.empty() && manager.download_directory() == second.string(), "registry ENOSPC cannot silently commit a different destination");
+ fail_registry_sync = false;
+ check(manager.relocation_status().pending && manager.find(active_id).has_value() && fs::exists(second / active_id / "media.mp4"),
+  "failed registry transaction keeps original files visible and a resumable journal");
+ check(manager.enqueue(request("pending-move"), error).empty() && !manager.resume(paused_id), "pending relocation blocks unrelated new mutations until retry");
+ check(manager.set_download_directory(first.string(), error) && !manager.relocation_status().pending && manager.find(active_id)->local_path.rfind(first.string(), 0) == 0,
+  "retry completes the original transaction without orphaning files");
+ fs::create_directory_symlink(first, data / "redirected");
+ check(!manager.set_download_directory((data / "redirected").string(), error), "symlink destination is refused");
+ check(!manager.set_download_directory((first / ".." / "external two").string(), error), "traversal spelling is refused");
+ manager.shutdown();
+ check(!manager.set_download_directory(second.string(), error), "selector cannot restart a shut-down manager");
+ check(manager.init(internal.string(), registry.string(), second.string(), &error) && manager.download_directory() == first.string() && manager.snapshot().size() == 4,
+  "restart preserves all stable download IDs and authoritative selected destination");
+ manager.shutdown();
+ const auto detached = data / "detached"; fs::rename(first, detached);
+ check(!manager.init(internal.string(), registry.string(), "", &error) && manager.download_directory() == first.string(), "disconnected drive remains registered without silent fallback");
+ check(!manager.set_download_directory(second.string(), error) && manager.download_directory() == first.string(), "inaccessible registered source prevents falsely successful all-download migration");
+ fs::rename(detached, first);
+ check(manager.set_download_directory(second.string(), error) && manager.snapshot().size() == 4, "reconnected source can migrate all previous downloads");
+ manager.shutdown();
+ const auto good_registry = bytes(registry_path);
+ write(registry_path.string() + ".bak", good_registry); write(registry_path, "{torn main");
+ check(manager.init(internal.string(), registry.string(), "", &error) && manager.download_directory() == second.string() && manager.find(active_id).has_value(),
+  "valid registry backup restores all moved downloads after a torn main");
+ manager.shutdown();
+ write(registry_path, "{torn main"); write(registry_path.string() + ".bak", "{torn backup"); write(registry_path.string() + ".tmp", good_registry);
+ check(manager.init(internal.string(), registry.string(), "", &error) && manager.download_directory() == second.string(), "valid temporary registry recovers when primary and backup are damaged");
+ manager.shutdown();
+ for (const char* suffix : {"", ".bak", ".tmp", ".new"}) write(registry_path.string() + suffix, std::string("damaged") + suffix);
+ check(!manager.init(internal.string(), registry.string(), "", &error) && error.find("damaged") != std::string::npos, "invalid registry copies report an explicit error");
+ check(!manager.set_download_directory(first.string(), error), "damaged registry cannot silently discard previous download roots");
+ bool preserved = true;
+ for (const char* suffix : {"", ".bak", ".tmp", ".new"}) preserved &= bytes(registry_path.string() + suffix) == std::string("damaged") + suffix;
+ check(preserved, "all damaged registry copies remain preserved for recovery");
+ manager.shutdown();
+}
+
 } // namespace
 
 extern "C" int __real_lstat(const char* path, struct stat* info);
@@ -685,6 +1007,12 @@ extern "C" int __wrap_lstat(const char* path, struct stat* info) {
 	return __real_lstat(path, info);
 }
 extern "C" int __real_chmod(const char* path, mode_t mode);
+extern "C" int __real_mkdir(const char* path, mode_t mode);
+extern "C" int __wrap_mkdir(const char* path, mode_t mode) {
+	const int code = fail_mkdir.load();
+	if (code && path == denied_path) { ++injected_mkdir_failures; errno = code; return -1; }
+	return __real_mkdir(path, mode);
+}
 extern "C" int __wrap_chmod(const char* path, mode_t mode) {
 	const int code = fail_chmod.load();
 	if (code && path == denied_path) { errno = code; return -1; }
@@ -698,6 +1026,7 @@ extern "C" DIR* __wrap_opendir(const char* path) {
 }
 extern "C" int __real_fchmod(int fd, mode_t mode);
 extern "C" int __wrap_fchmod(int fd, mode_t mode) {
+	if (ignore_successful_fchmod.load()) return 0;
 	const int code = fail_fchmod.load();
 	if (code) { errno = code; return -1; }
 	return __real_fchmod(fd, mode);
@@ -706,7 +1035,7 @@ extern "C" ssize_t __real_write(int fd, const void* data, size_t size);
 extern "C" ssize_t __wrap_write(int fd, const void* data, size_t size) {
 	if (ui_polling) ++ui_storage_calls;
 	const int code = fail_write.load();
-	if (code) { errno = code; return -1; }
+	if (code) { ++injected_write_failures; errno = code; return -1; }
 	return __real_write(fd, data, size);
 }
 extern "C" int __real_fsync(int fd);
@@ -716,6 +1045,13 @@ extern "C" int __wrap_fsync(int fd) {
 	const auto descriptor = "/proc/self/fd/" + std::to_string(fd);
 	const ssize_t count = ::readlink(descriptor.c_str(), path, sizeof(path) - 1);
 	const bool is_manifest = count > 0 && std::string(path, size_t(count)).ends_with("/manifest.json.tmp");
+	const bool is_registry = count > 0 && std::string(path, size_t(count)).ends_with("/download-directories.json.tmp");
+	if (is_registry && fail_registry_sync.load()) { errno = ENOSPC; return -1; }
+	if (is_registry && hold_registry_sync.exchange(false)) {
+		registry_sync_entered = true;
+		while (!release_registry_sync.load()) std::this_thread::sleep_for(1ms);
+	}
+
 	if (is_manifest) ++manifest_sync_count;
 	const int code = fail_sync.load();
 	if (code) { errno = code; return -1; }
@@ -769,17 +1105,26 @@ DownloadTransferResult download_transfer(const DownloadTransferRequest& request,
 			return {DownloadTransferStatus::Cancelled, {}, ".mp4", prefix, 8192};
 		}
 		if (fake->throws) throw std::runtime_error("https://provider.invalid/private-token");
+		if (fake->storage_error) {
+			fake->returned = true;
+			return {DownloadTransferStatus::Error, "Not enough storage space.", ".mp4", 4096, 8192, fake->storage_error};
+		}
 		if (fake->failure) { fake->returned = true; return {DownloadTransferStatus::Error, "https://provider.invalid/private-token failed", ".mp4", 4096, 8192}; }
 	}
 	write(request.partial_path, std::string(8192, 'a')); progress({8192, 8192, 128000});
 	std::lock_guard lock(fake_mutex); fake->returned = true;
+	if (fake->fail_completion_save) fail_write = ENOSPC;
 	return {DownloadTransferStatus::Complete, {}, ".mp4", 8192, fake->malformed ? 16384 : 8192};
 }
 
 int main(int argc, char** argv) {
 	if (argc != 2) return 2;
 	const fs::path root = fs::absolute(argv[1]);
+	selected_directories(root / "selected-directories");
 	storage_permissions_and_retry(root / "storage");
+	full_storage_inventory(root / "full-storage");
+	completion_reconciliation(root / "completion-recovery");
+	transfer_storage_failure(root / "transfer-storage-error");
 	basic_queue(root / "queue");
 	crash_and_validation(root / "crash");
 	retry_and_remove(root / "remove");

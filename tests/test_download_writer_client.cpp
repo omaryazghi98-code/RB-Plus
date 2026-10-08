@@ -21,6 +21,7 @@ void check(bool value, const char* description) {
 struct Script {
     std::vector<unsigned char> input, output;
     std::vector<wire::Message> requests;
+    std::vector<std::string> payloads;
     std::function<void(wire::Message&, const wire::Message&)> reply;
     std::size_t output_at = 0, fragment = 17, truncate_reply = 0;
     unsigned sends = 0, receives = 0, destroyed = 0;
@@ -34,6 +35,7 @@ struct Script {
         check(wire::request(request) && input.size() == sizeof(request) + request.payload_bytes,
               "client sent exactly one bounded request and its complete payload");
         requests.push_back(request);
+        payloads.emplace_back(reinterpret_cast<const char*>(input.data() + sizeof(request)), request.payload_bytes);
         input.clear();
         wire::Message response = request;
         response.operation = wire::Operation::response;
@@ -212,6 +214,30 @@ void resume_and_local_bounds() {
               "oversized, missing or out-of-file payload is never sent");
     }
 }
+void selected_directory() {
+    const std::string destination = "/mnt/ext1/Videos/Stremio Plus Downloads";
+    auto script = std::make_shared<Script>();
+    download_writer::Client client(std::make_unique<Channel>(script));
+    check(client.begin(destination, job, 0, 64), "selected mounted volume begins successfully");
+    std::string expected(job);
+    expected.push_back('\0'); expected += destination;
+    check(script->payloads.size() == 1 && script->payloads.front() == expected,
+          "begin transmits the exact selected directory without default substitution");
+    check(wire::download_directory(destination) && wire::download_directory("/data/Videos"),
+          "native writer accepts data and mounted-volume directories");
+    check(!wire::download_directory("/user/system") && !wire::download_directory("/mnt") &&
+          !wire::download_directory("/data-other/videos"), "native directory namespace stays bounded");
+    const std::vector<std::string> invalid = {
+        "relative/path", "/mnt/ext1/", "/mnt/ext1//Videos", "/mnt/ext1/../Videos",
+        "/mnt/ext1/./Videos", std::string("/mnt/ext1\0ignored", 17),
+        "/mnt/ext1/" + std::string(1024, 'a')};
+    for (const auto& directory : invalid) {
+        auto rejected = std::make_shared<Script>();
+        download_writer::Client connection(std::make_unique<Channel>(rejected));
+        check(!connection.begin(directory, job, 0, 64) && connection.error() == EINVAL &&
+              rejected->requests.empty(), "invalid selected directory never reaches the transport");
+    }
+}
 } // namespace
 
 int main() {
@@ -220,6 +246,7 @@ int main() {
     remote_and_transport_failures();
     checkpoint_error_stages();
     resume_and_local_bounds();
+    selected_directory();
     std::cout << "Download writer client: " << checks - failures << '/' << checks << " checks passed\n";
     return failures ? 1 : 0;
 }

@@ -40,27 +40,29 @@ bool App::init(const std::string& base_dir, const std::string& data_dir, bool of
 	offline_ = offline;
 	base_dir_ = base_dir;
 	data_dir_ = data_dir;
-	// The app's storage (16 GB, param.json) holds the read-ahead: the
-	// built-in torrent engine's 6 GB rolling cache, and up to 6 GB for a
-	// stream from a server or a direct link; the rest is the artwork cache.
+	// Rolling stream caches grow only as received data is written. Their
+	// capacity is a limit, never an installation-time disk reservation.
 	bt::Engine::get().configure(data_dir_, 6ll << 30);
 	NetStream::set_cache_dir(data_dir_);
 
 	system_ui_language_ = platform_ui_language();
 	load_settings();
 	load_progress();
-	// Offline videos live outside the bounded streaming-cache mount on PS5.
-	// Native startup prepares /data/Stremio before application workers start.
+	// Keep the old download directory in the inventory when selecting another
+	// volume. The registry in appdata records every previously used directory.
 #ifdef PLATFORM_PS5_NATIVE
 	const std::string downloads_parent = "/data/Stremio";
 #else
 	const std::string& downloads_parent = data_dir_;
 #endif
 	std::string download_error;
-	if (!downloads_.init(downloads_parent, &download_error))
-		dlog("Download storage initialization failed: %s", download_error.c_str());
+	if (!downloads_.init(downloads_parent, data_dir_, settings_.download_directory, &download_error))
+		dlog("Download storage initialization: readable=%d writable=0 error=%s",
+			int(downloads_.storage_readable()), download_error.c_str());
 	else
-		dlog("Download storage ready: %s/downloads", downloads_parent.c_str());
+		dlog("Download storage ready: %s", downloads_.download_directory().c_str());
+	settings_.download_directory = downloads_.download_directory();
+	save_settings();
 	downloads_.set_enabled(!offline_ && signed_in());
 
 	refresh_clock();
@@ -83,6 +85,8 @@ bool App::init(const std::string& base_dir, const std::string& data_dir, bool of
 }
 
 void App::shutdown() {
+	close_download_directory_picker(true);
+	watch_cancel_next_episode();
 	for (auto* cancel : {&home_cancel_, &search_cancel_, &disc_cancel_, &d_stream_cancel_,
 	                     &d_meta_cancel_, &w_sub_cancel_, &launch_cancel_, &preview_metadata_cancel_, &download_art_cancel_})
 		if (*cancel) (*cancel)->store(true);
@@ -126,6 +130,7 @@ void App::load_settings() {
 		    torrent_profile <= 2 && std::floor(torrent_profile) == torrent_profile ? int(torrent_profile) : 2;
 		settings_.subtitle_langs = jstr(j, "subtitle_languages", settings_.subtitle_langs);
 		settings_.auto_subtitles = jbool(j, "auto_subtitles", settings_.auto_subtitles);
+		settings_.download_directory = jstr(j, "download_directory");
 		settings_.sub_size = jstr(j, "subtitle_size", settings_.sub_size);
 		auto known = [&j](const char* key, const std::string& fallback, std::initializer_list<const char*> allowed) {
 			const auto value = jstr(j, key, fallback);
@@ -138,6 +143,9 @@ void App::load_settings() {
 		settings_.sub_background_opacity = std::clamp(int(jnum(j, "subtitle_background_opacity", 70)), 0, 100);
 		settings_.audio_langs = jstr(j, "audio_languages", settings_.audio_langs);
 		settings_.autoplay_next = jbool(j, "autoplay_next", settings_.autoplay_next);
+		const double next_delay = jnum(j, "next_episode_delay_seconds", 15);
+		settings_.next_episode_delay_seconds = std::isfinite(next_delay) ?
+			int(std::clamp(next_delay, 5.0, 120.0)) : 15;
 		settings_.auth_key = jstr(j, "auth_key");
 		settings_.user_email = jstr(j, "user_email");
         settings_.reduced_motion = jbool(j, "reduced_motion", false);
@@ -222,7 +230,8 @@ void App::save_settings() {
 void App::flush_settings(bool synchronous) {
     if (offline_ || (!synchronous && (!settings_pending_ || settings_writing_))) return;
     json j = {
-        {"schema_version", 6}, {"server_url", settings_.server_url},
+        {"schema_version", 7}, {"server_url", settings_.server_url},
+        {"download_directory", settings_.download_directory},
         {"builtin_torrents", settings_.builtin_torrents},
         {"torrent_speed_profile", settings_.torrent_speed_profile},
         {"subtitle_languages", settings_.subtitle_langs}, {"auto_subtitles", settings_.auto_subtitles},
@@ -230,6 +239,7 @@ void App::flush_settings(bool synchronous) {
         {"subtitle_color", settings_.sub_color}, {"subtitle_effect", settings_.sub_effect},
         {"subtitle_font", settings_.sub_font}, {"subtitle_background_opacity", settings_.sub_background_opacity},
         {"autoplay_next", settings_.autoplay_next}, {"extra_addons", settings_.extra_addons},
+        {"next_episode_delay_seconds", settings_.next_episode_delay_seconds},
         {"auth_key", settings_.auth_key}, {"user_email", settings_.user_email},
         {"reduced_motion", settings_.reduced_motion}, {"ui_sounds", settings_.ui_sounds},
         {"high_contrast", settings_.high_contrast}, {"show_stats", settings_.show_stats},
@@ -448,6 +458,8 @@ void App::load_library() {
 // Views and input
 
 void App::set_view(const std::string& v) {
+	if (next_episode_visible && watching_) watch_stop(true);
+	else watch_cancel_next_episode();
 	g_art.clear_queue();
 	view = v;
 	zone = "content";
@@ -504,6 +516,11 @@ bool App::browse_shortcut(Btn b) {
 
 void App::on_button(Btn b) {
 	if (input_visible_) return;  // the system keyboard dialog has the controller
+	if (directory_picker_visible) { directory_picker_button(b); return; }
+	if (download_directory_notice) {
+		if (b == Btn::Cross || b == Btn::Circle) { download_directory_notice = false; dirty_all(); }
+		return;
+	}
 	if (dd_visible) return dropdown_button(b);
 	if (login_visible) {
 		if (b == Btn::Circle) {
@@ -513,6 +530,7 @@ void App::on_button(Btn b) {
 		else if (b == Btn::Cross) request_login_code();
 		return;
 	}
+	if (next_episode_visible) { watch_next_episode_button(b); return; }
 	if (launch_visible && !watching_) {  // the server is still preparing the stream
 		if (b == Btn::Circle) {
 			if (launch_cancel_) *launch_cancel_ = true;
@@ -715,6 +733,7 @@ std::pair<std::string, std::string> App::ambient_artwork() const {
 void App::update() {
 	g_tasks.drain();
 	input_poll();
+	if (directory_picker_committing) directory_picker_tick();
 	double now = now_seconds();
 	if (!offline_ && signed_in() && now >= download_art_refresh_at_) {
 		download_art_refresh_at_ = now + 2;
@@ -741,6 +760,7 @@ void App::update() {
 	if (login_visible) login_poll();
 	if (t_visible) torrent_stats_poll();
 	if (watching_ || launch_visible) watch_update();
+	watch_next_episode_tick();
 	// A row whose requests all failed has no success callback to wake it.
 	// Revisit only visible missing artwork; ArtCache enforces each URL's
 	// retry backoff, and a completed row stops this work automatically.

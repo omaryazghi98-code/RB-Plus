@@ -33,6 +33,14 @@ extern "C" {
 #include <mutex>
 #include <set>
 #include <sys/stat.h>
+#if defined(PLATFORM_PS5_NATIVE)
+#include <sys/mount.h>
+extern "C" int download_fstatfs(int, struct statfs*) __asm__("_fstatfs");
+#elif defined(__linux__)
+#include <sys/vfs.h>
+#else
+#include <sys/mount.h>
+#endif
 #include <thread>
 #include <unistd.h>
 
@@ -53,24 +61,72 @@ constexpr size_t kManifestSetLimit = 24u << 20;
 constexpr int kStallSeconds = 120;
 constexpr size_t kWriteAlignment = 16u << 10;
 constexpr size_t kTorrentWriteBytes = 4u << 20;
+constexpr uint64_t kStorageHeadroom = 16u << 20;
 
 struct File {
 	int fd = -1;
 	File() = default;
 	explicit File(int value) : fd(value) {}
-	~File() { if (fd >= 0) ::close(fd); }
+	~File() { const int saved = errno; if (fd >= 0) ::close(fd); errno = saved; }
 	File(const File&) = delete;
 	File& operator=(const File&) = delete;
 	bool close() { const int value = fd; fd = -1; return value < 0 || ::close(value) == 0; }
 };
 
-std::string disk_error() {
-	return errno == ENOSPC || errno == EDQUOT ? "Insufficient storage for this download" : "Could not write the download to storage";
+int file_error() { return errno > 0 ? errno : EIO; }
+
+std::string disk_error(int code, const char* fallback = "Could not write the download to storage") {
+	if (code == ENOSPC || code == EDQUOT) return "The download destination could not allocate more storage";
+	if (code == EACCES || code == EPERM) return "The download folder does not allow writing";
+	return fallback;
+}
+
+// Query the destination inode, not the PS5's game-storage capacity. A failed
+// or invalid probe is unknown space and must not be treated as a full volume.
+bool storage_capacity(int fd, int64_t remaining, const char* mode, const char* phase) {
+	const int saved_errno = errno;
+	struct stat file{};
+	const bool identified = fd >= 0 && ::fstat(fd, &file) == 0;
+	struct statfs filesystem{};
+#ifdef PLATFORM_PS5_NATIVE
+	const int measured = fd < 0 ? -1 : download_fstatfs(fd, &filesystem);
+#else
+	const int measured = fd < 0 ? -1 : ::fstatfs(fd, &filesystem);
+#endif
+	const int probe_error = measured ? (fd < 0 ? EBADF : file_error()) : 0;
+	const int64_t raw_block_size = int64_t(filesystem.f_bsize);
+	const uint64_t block_size = raw_block_size > 0 ? uint64_t(raw_block_size) : 0;
+	const uint64_t blocks = uint64_t(filesystem.f_blocks);
+	const uint64_t free_blocks = uint64_t(filesystem.f_bfree);
+	const int64_t raw_available_blocks = int64_t(filesystem.f_bavail);
+	const uint64_t available_blocks = raw_available_blocks >= 0 ? uint64_t(raw_available_blocks) : 0;
+	const bool known = measured == 0 && block_size && blocks && blocks <= uint64_t(INT64_MAX) && free_blocks <= blocks &&
+		raw_available_blocks >= 0 && available_blocks <= free_blocks && available_blocks <= UINT64_MAX / block_size;
+	const uint64_t available = known ? available_blocks * block_size : 0;
+	const uint64_t needed = uint64_t(std::max<int64_t>(0, remaining));
+	const uint64_t reserve = needed ? kStorageHeadroom : 0;
+	const uint64_t required = needed <= UINT64_MAX - reserve ? needed + reserve : UINT64_MAX;
+	dlog("download capacity: mode=%s phase=%s known=%d probe_errno=%d available_bytes=%llu required_bytes=%llu remaining_bytes=%lld reserve_bytes=%llu blocks=%lld free_blocks=%lld available_blocks=%lld block_size=%lld free_inodes=%lld file_mode=%04o file_uid=%u file_gid=%u device=%llu identity_known=%d",
+	     mode, phase, int(known), probe_error, (unsigned long long)available,
+	     (unsigned long long)required, (long long)remaining, (unsigned long long)reserve,
+	     (long long)blocks, (long long)free_blocks, (long long)raw_available_blocks,
+	     (long long)raw_block_size, (long long)filesystem.f_ffree,
+	     unsigned(file.st_mode & 07777), unsigned(file.st_uid), unsigned(file.st_gid),
+	     (unsigned long long)file.st_dev, int(identified));
+#ifdef PLATFORM_PS5_NATIVE
+	if (measured == 0)
+		dlog("download capacity filesystem: type=%.*s mount=%.*s process_uid=%u process_gid=%u",
+		     int(sizeof(filesystem.f_fstypename)), filesystem.f_fstypename,
+		     int(sizeof(filesystem.f_mntonname)), filesystem.f_mntonname, unsigned(::geteuid()), unsigned(::getegid()));
+#endif
+	errno = saved_errno;
+	return !known || available >= required;
 }
 
 bool regular_fd(int fd, int64_t* size = nullptr) {
 	struct stat st{};
-	if (fd < 0 || fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size < 0) return false;
+	if (fd < 0 || fstat(fd, &st)) return false;
+	if (!S_ISREG(st.st_mode) || st.st_size < 0) { errno = EINVAL; return false; }
 	if (size) *size = int64_t(st.st_size);
 	return true;
 }
@@ -80,7 +136,7 @@ bool write_all(int fd, const void* data, size_t count) {
 	while (count) {
 		const ssize_t n = ::write(fd, at, count);
 		if (n < 0 && errno == EINTR) continue;
-		if (n <= 0) return false;
+		if (n <= 0) { if (n == 0) errno = EIO; return false; }
 		at += size_t(n); count -= size_t(n);
 	}
 	return true;
@@ -95,10 +151,10 @@ struct TorrentWriter {
 		const auto slash = directory.rfind('/');
 		if (slash == std::string::npos) { errno = EINVAL; return false; }
 #ifdef PLATFORM_PS5_NATIVE
-		if (directory.substr(0, slash) != download_writer::wire::root) { errno = EINVAL; return false; }
+		if (!download_writer::wire::download_directory(std::string_view(directory).substr(0, slash))) { errno = EINVAL; return false; }
 #endif
 		helper = std::make_unique<download_writer::Client>(download_writer::launch_helper());
-		if (!helper->begin(std::string_view(directory).substr(slash + 1), done, total)) {
+		if (!helper->begin(std::string_view(directory).substr(0, slash), std::string_view(directory).substr(slash + 1), done, total)) {
 			errno = helper->error(); return false;
 		}
 		done = helper->offset();
@@ -128,13 +184,30 @@ struct TorrentWriter {
 		while (at < count) {
 			const ssize_t n = ::write(fd, buffer.get() + at, count - at);
 			if (n < 0 && errno == EINTR) continue;
-			if (n <= 0) return false;
+			if (n <= 0) { if (n == 0) errno = EIO; return false; }
 			at += size_t(n);
 		}
 		return true;
 #endif
 	}
 };
+
+#if defined(PLATFORM_PS5_NATIVE) || defined(STREMIO_DOWNLOAD_WRITER_TEST)
+int helper_storage_error(const download_writer::Client& helper) {
+	using download_writer::wire::Stage;
+	switch (helper.error_stage()) {
+	case Stage::begin:
+		return helper.error() == EINVAL || helper.error() == ENOMEM ? 0 : helper.error();
+	case Stage::media_write: case Stage::media_sync: case Stage::state_unlink:
+	case Stage::state_open: case Stage::state_check: case Stage::state_write:
+	case Stage::state_sync: case Stage::state_close: case Stage::state_rename:
+	case Stage::directory_sync: case Stage::close:
+		return helper.error();
+	default:
+		return 0;
+	}
+}
+#endif
 
 bool valid_paths(const DownloadTransferRequest& r) {
 	if (r.work_dir.empty() || r.work_dir.front() != '/' || r.work_dir.back() == '/') return false;
@@ -451,19 +524,33 @@ struct HttpDownload {
 	TransferTimings timings{"http"};
 	bool ready = false, hls = false, restart = false, verified_existing = false;
 	DownloadTransferStatus failure = DownloadTransferStatus::Error;
+	int storage_error = 0;
+	bool fail_storage(int code, const char* phase, const char* fallback = "Could not write the download to storage") {
+		if (!storage_error) {
+			storage_error = code;
+			error = disk_error(code, fallback);
+			dlog("download http: storage failed stage=%s errno=%d offset=%lld durable=%lld total=%lld",
+			     phase, code, (long long)done, (long long)committed, (long long)total);
+			(void)storage_capacity(file.fd, total > 0 ? total - done : -1, "http", phase);
+		}
+		return false;
+	}
 
 	bool checkpoint(bool force = false) {
+		if (storage_error) return false;
 		if (!force && done == committed) return true;
 		const auto start = Clock::now();
 		const bool media_saved = ::fsync(file.fd) == 0;
+		const int media_error = media_saved ? 0 : file_error();
 		timings.media_sync_ms += TransferTimings::millis(start);
-		if (!media_saved) { timings.commit_ms += TransferTimings::millis(start); error = disk_error(); return false; }
+		if (!media_saved) { timings.commit_ms += TransferTimings::millis(start); return fail_storage(media_error, "media_sync"); }
 		json state{{"version", 1}, {"kind", "http"}, {"source", identity}, {"bytes", done}, {"total", total}, {"etag", headers.etag}, {"modified", headers.modified}, {"extension", extension}};
 		const auto state_at = Clock::now();
 		const bool saved_ok = save_checkpoint(request, state);
+		const int state_error = saved_ok ? 0 : file_error();
 		timings.state_sync_ms += TransferTimings::millis(state_at);
 		timings.commit_ms += TransferTimings::millis(start);
-		if (!saved_ok) { error = "Could not save the download checkpoint"; return false; }
+		if (!saved_ok) return fail_storage(state_error, "state_save", "Could not save the download checkpoint");
 		++timings.commits; committed = done; checkpoint_at = Clock::now(); return true;
 	}
 	~HttpDownload() { timings.emit(done, committed, true); }
@@ -497,9 +584,12 @@ struct HttpDownload {
 			// this complete 200 response only after discarding the old partial.
 			if (headers.length <= 0) { failure = DownloadTransferStatus::Unsupported; error = "Offline download requires a finite file length; live streams are not supported"; return false; }
 			total = response_expected = headers.length;
-			if (requested > 0) { if (::ftruncate(file.fd, 0) || ::lseek(file.fd, 0, SEEK_SET) < 0) { error = disk_error(); return false; } done = 0; }
+			if (requested > 0) { if (::ftruncate(file.fd, 0) || ::lseek(file.fd, 0, SEEK_SET) < 0) return fail_storage(file_error(), "restart"); done = 0; }
 		}
-		if (::lseek(file.fd, done, SEEK_SET) < 0) { error = disk_error(); return false; }
+		if (::lseek(file.fd, done, SEEK_SET) < 0) return fail_storage(file_error(), "media_seek");
+		if (!storage_capacity(file.fd, total - done, "http", "preflight")) {
+			storage_error = ENOSPC; error = "Insufficient storage for this download"; return false;
+		}
 		extension = suffix(request.stream.filename.empty() ? request.stream.url : request.stream.filename, headers.mime);
 		reporter.reset(done);
 		ready = checkpoint(true);
@@ -530,8 +620,9 @@ struct HttpDownload {
 		if (bytes > uint64_t(self.total - self.done) || (self.response_expected >= 0 && bytes > uint64_t(self.response_expected - self.response_bytes))) { self.error = "The source sent more bytes than its declared file length"; return 0; }
 		const auto start = Clock::now();
 		const bool written = write_all(self.file.fd, data, bytes);
+		const int write_error = written ? 0 : file_error();
 		self.timings.write_ms += TransferTimings::millis(start); ++self.timings.writes;
-		if (!written) { self.error = disk_error(); return 0; }
+		if (!written) { self.fail_storage(write_error, "media_write"); return 0; }
 		self.done += int64_t(bytes); self.response_bytes += int64_t(bytes);
 		self.timings.bytes += int64_t(bytes);
 		if ((self.done - self.committed >= kCommitBytes || Clock::now() - self.checkpoint_at >= kCommitInterval) && !self.checkpoint()) return 0;
@@ -551,14 +642,20 @@ DownloadTransferResult transfer_http(const DownloadTransferRequest& request, con
 	if (run.identity.empty()) return {DownloadTransferStatus::Error, "Could not identify the download source"};
 	run.file.fd = ::open(request.partial_path.c_str(), O_RDWR | O_CREAT | O_NOFOLLOW, 0600);
 	int64_t file_size = 0;
-	if (!regular_fd(run.file.fd, &file_size) || ::fchmod(run.file.fd, 0600)) return {DownloadTransferStatus::Error, disk_error()};
+	if (!regular_fd(run.file.fd, &file_size) || ::fchmod(run.file.fd, 0600)) {
+		const int code = file_error();
+		return {DownloadTransferStatus::Error, disk_error(code), run.extension, run.done, run.total, code};
+	}
 	run.saved = read_checkpoint(request);
 	run.extension = suffix(jstr(run.saved, "extension"));
 	const int64_t saved_bytes = integer(run.saved, "bytes");
 	if (request.allow_resume && jstr(run.saved, "kind") == "http" && jstr(run.saved, "source") == run.identity && saved_bytes > 0 && saved_bytes <= file_size && integer(run.saved, "total") >= saved_bytes && (strong_etag(jstr(run.saved, "etag")) || valid_date_validator(jstr(run.saved, "modified")))) {
 		run.done = saved_bytes; run.total = integer(run.saved, "total");
 	}
-	if (::ftruncate(run.file.fd, run.done)) return {DownloadTransferStatus::Error, disk_error()};
+	if (::ftruncate(run.file.fd, run.done)) {
+		const int code = file_error();
+		return {DownloadTransferStatus::Error, disk_error(code), run.extension, run.done, run.total, code};
+	}
 	for (int attempt = 0; attempt < 128; ++attempt) {
 		if (cancel.load()) return {DownloadTransferStatus::Cancelled, {}, run.extension, run.done, run.total};
 		CurlHandle curl;
@@ -580,10 +677,15 @@ DownloadTransferResult transfer_http(const DownloadTransferRequest& request, con
 		curl_easy_setopt(curl.handle, CURLOPT_XFERINFODATA, &run);
 		const CURLcode result = curl_easy_perform(curl.handle);
 		if (run.hls) { run.file.close(); return transfer_hls(request, progress, cancel); }
-		if (run.ready && !run.checkpoint()) return {DownloadTransferStatus::Error, run.error, run.extension, run.done, run.total};
+		if (run.storage_error || (run.ready && !run.checkpoint()))
+			return {DownloadTransferStatus::Error, run.error, run.extension, run.done, run.total, run.storage_error};
 		if (cancel.load()) return {DownloadTransferStatus::Cancelled, {}, run.extension, run.done, run.total};
 		if (run.restart) {
-			if (run.requested == 0 || ::ftruncate(run.file.fd, 0)) return {DownloadTransferStatus::Error, "The download source cannot resume this file safely"};
+			if (run.requested == 0) return {DownloadTransferStatus::Error, "The download source cannot resume this file safely"};
+			if (::ftruncate(run.file.fd, 0)) {
+				const int code = file_error();
+				return {DownloadTransferStatus::Error, disk_error(code), run.extension, run.done, run.total, code};
+			}
 			run.done = run.committed = 0; run.saved = json::object(); run.error.clear(); continue;
 		}
 		if (!run.verified_existing && (!run.error.empty() || result != CURLE_OK || !run.ready || run.response_bytes != run.response_expected)) {
@@ -596,7 +698,15 @@ DownloadTransferResult transfer_http(const DownloadTransferRequest& request, con
 				return {DownloadTransferStatus::Error, "The source split the file into ranges without a safe resume validator", run.extension, run.done, run.total};
 			continue;
 		}
-		if (run.done != run.total || !regular_fd(run.file.fd, &file_size) || file_size != run.total || ::fsync(run.file.fd) || !run.file.close()) return {DownloadTransferStatus::Error, "Could not finalize the complete downloaded file", run.extension, run.done, run.total};
+		if (!regular_fd(run.file.fd, &file_size) || ::fsync(run.file.fd)) {
+			const int code = file_error();
+			return {DownloadTransferStatus::Error, disk_error(code, "Could not finalize the complete downloaded file"), run.extension, run.done, run.total, code};
+		}
+		if (run.done != run.total || file_size != run.total) return {DownloadTransferStatus::Error, "Could not finalize the complete downloaded file", run.extension, run.done, run.total};
+		if (!run.file.close()) {
+			const int code = file_error();
+			return {DownloadTransferStatus::Error, disk_error(code, "Could not finalize the complete downloaded file"), run.extension, run.done, run.total, code};
+		}
 		if (!probe_media(request.partial_path, cancel)) return {cancel.load() ? DownloadTransferStatus::Cancelled : DownloadTransferStatus::Unsupported, "The downloaded file does not contain playable audio or video", run.extension, run.done, run.total};
 		run.reporter.emit(run.done, run.total, true);
 		return {DownloadTransferStatus::Complete, {}, run.extension, run.done, run.total};
@@ -660,6 +770,7 @@ DownloadTransferResult transfer_torrent(const DownloadTransferRequest& request, 
 	if (!reader.torrent || total <= 0 || total != files[size_t(index)].size) return {DownloadTransferStatus::Error, "Could not open the selected torrent file"};
 	const json saved = read_checkpoint(request);
 	const std::string identity = hash + ":" + std::to_string(index);
+	const std::string extension = suffix(files[size_t(index)].path);
 	int64_t done = 0;
 	const int64_t saved_bytes = integer(saved, "bytes");
 	if (request.allow_resume && jstr(saved, "kind") == "torrent" && jstr(saved, "source") == identity && integer(saved, "total") == total && saved_bytes >= 0 && saved_bytes <= total) done = saved_bytes;
@@ -669,22 +780,44 @@ DownloadTransferResult transfer_torrent(const DownloadTransferRequest& request, 
 	TorrentWriter writer(-1);
 	if (!writer.buffer) return {DownloadTransferStatus::Error, "Could not allocate the download write buffer"};
 	if (!writer.start_helper(request.work_dir, done, total)) {
-		dlog("download writer: launch failed error=%d", errno);
-		return {DownloadTransferStatus::Error, "Could not start the PS5 download writer"};
+		const int code = writer.helper ? writer.helper->error() : file_error();
+		const int storage_error = writer.helper ? helper_storage_error(*writer.helper) : 0;
+		dlog("download writer: launch failed error=%d stage=%s", code,
+		     writer.helper ? download_writer::wire::stage_name(writer.helper->error_stage()) : "transport");
+		return {DownloadTransferStatus::Error, storage_error ? disk_error(storage_error) : "Could not start the PS5 download writer", extension, done, total, storage_error};
+	}
+	// This descriptor observes the same destination inode throughout the
+	// transfer, including after the helper reports a terminal write error.
+	file.fd = ::open(request.partial_path.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (file.fd < 0) {
+		const int code = file_error();
+		dlog("download capacity: destination descriptor unavailable errno=%d", code);
 	}
 	dlog("download writer: ready protocol=%u resume=%lld total=%lld",
 	     unsigned(download_writer::wire::version), (long long)done, (long long)total);
+	const char* storage_mode = "payload_writer";
 #else
 	file.fd = ::open(request.partial_path.c_str(), O_RDWR | O_CREAT | O_NOFOLLOW, 0600);
-	if (!regular_fd(file.fd, &size) || ::fchmod(file.fd, 0600)) return {DownloadTransferStatus::Error, disk_error()};
+	if (!regular_fd(file.fd, &size) || ::fchmod(file.fd, 0600)) {
+		const int code = file_error();
+		return {DownloadTransferStatus::Error, disk_error(code), extension, done, total, code};
+	}
 	if (done > size) done = 0;
-	if (::ftruncate(file.fd, done) || ::lseek(file.fd, done, SEEK_SET) < 0) return {DownloadTransferStatus::Error, disk_error()};
+	if (::ftruncate(file.fd, done) || ::lseek(file.fd, done, SEEK_SET) < 0) {
+		const int code = file_error();
+		return {DownloadTransferStatus::Error, disk_error(code), extension, done, total, code};
+	}
 	TorrentWriter writer(file.fd);
 	if (!writer.buffer) return {DownloadTransferStatus::Error, "Could not allocate the download write buffer"};
+	const char* storage_mode = "buffered";
 #endif
-	const std::string extension = suffix(files[size_t(index)].path);
+	if (!storage_capacity(file.fd, total - done, storage_mode, "preflight"))
+		return {DownloadTransferStatus::Error, "Insufficient storage for this download", extension, done, total, ENOSPC};
 	reporter.torrent(hash, index); reporter.reset(done);
 	int64_t committed = done;
+	int storage_error = 0;
+	bool output_failed = false;
+	std::string error;
 	auto checkpoint_at = Clock::now();
 	TransferTimings timings{"torrent"};
 	auto checkpoint = [&](bool force = false) {
@@ -694,24 +827,40 @@ DownloadTransferResult transfer_torrent(const DownloadTransferRequest& request, 
 #if defined(PLATFORM_PS5_NATIVE) || defined(STREMIO_DOWNLOAD_WRITER_TEST)
 		download_writer::CommitTimes commit_times;
 		const bool saved_ok = writer.helper->checkpoint(state.dump(), commit_times);
+		const int code = saved_ok ? 0 : writer.helper->error();
 		timings.media_sync_ms += commit_times.media_ms;
 		timings.state_sync_ms += commit_times.state_ms;
-		if (!saved_ok)
+		if (!saved_ok) {
+			storage_error = helper_storage_error(*writer.helper);
+			error = storage_error ? disk_error(storage_error, "Could not save the torrent download checkpoint") : "Could not save the torrent download checkpoint";
 			dlog("download checkpoint: failed stage=%s errno=%d offset=%lld total=%lld initial=%d",
-			     download_writer::wire::stage_name(writer.helper->error_stage()), writer.helper->error(),
+			     download_writer::wire::stage_name(writer.helper->error_stage()), code,
 			     (long long)done, (long long)total, int(force));
+		}
 #else
 		const bool media_saved = ::fsync(file.fd) == 0;
+		const int media_error = media_saved ? 0 : file_error();
 		timings.media_sync_ms += TransferTimings::millis(start);
 		const auto state_at = Clock::now();
 		const bool saved_ok = media_saved && save_checkpoint(request, state);
+		const int code = saved_ok ? 0 : media_error ? media_error : file_error();
 		timings.state_sync_ms += TransferTimings::millis(state_at);
+		if (!saved_ok) {
+			storage_error = code;
+			error = disk_error(code, "Could not save the torrent download checkpoint");
+			dlog("download checkpoint: failed stage=%s errno=%d offset=%lld total=%lld initial=%d",
+			     media_saved ? "state_save" : "media_sync", code, (long long)done, (long long)total, int(force));
+		}
 #endif
 		timings.commit_ms += TransferTimings::millis(start);
-		if (!saved_ok) return false;
+		if (!saved_ok) {
+			output_failed = true;
+			(void)storage_capacity(file.fd, total - done, storage_mode, "checkpoint_failure");
+			return false;
+		}
 		++timings.commits; committed = done; checkpoint_at = Clock::now(); return true;
 	};
-	if (!checkpoint(true)) return {DownloadTransferStatus::Error, "Could not save the torrent download checkpoint", extension, done, total};
+	if (!checkpoint(true)) return {DownloadTransferStatus::Error, error, extension, done, total, storage_error};
 	deadline.touch();
 	reporter.emit(done, total, true);
 	dlog("download torrent: start file=%d total=%lld resume=%lld", index, (long long)total, (long long)done);
@@ -726,7 +875,6 @@ DownloadTransferResult transfer_torrent(const DownloadTransferRequest& request, 
 	if (::fstat(file.fd, &storage) == 0)
 		dlog("download storage: device=%llu block_size=%lld", (unsigned long long)storage.st_dev, (long long)storage.st_blksize);
 #endif
-	std::string error;
 	while (done < total && !deadline.abort.load()) {
 		const size_t capacity = writer.capacity(std::min(total - done, kTorrentCommitBytes - (done - committed)));
 		size_t buffered = 0;
@@ -749,39 +897,55 @@ DownloadTransferResult transfer_torrent(const DownloadTransferRequest& request, 
 		if (!buffered) break;
 		const auto write_at = Clock::now();
 		const bool written = writer.write(buffered);
+		const int write_error = written ? 0 : file_error();
 		timings.write_ms += TransferTimings::millis(write_at); ++timings.writes;
 #if defined(PLATFORM_PS5_NATIVE) || defined(STREMIO_DOWNLOAD_WRITER_TEST)
 		timings.helper_write_ms += writer.helper->last_write_ms();
 #endif
 		if (!written) {
+			output_failed = true;
 #if defined(PLATFORM_PS5_NATIVE) || defined(STREMIO_DOWNLOAD_WRITER_TEST)
-			dlog("download writer: write failed error=%d offset=%lld", writer.helper->error(), (long long)done);
-			error = errno == ENOSPC || errno == EDQUOT ? disk_error() : "The PS5 download writer stopped before confirming the data";
+			storage_error = helper_storage_error(*writer.helper);
+			error = storage_error ? disk_error(storage_error) : "The PS5 download writer stopped before confirming the data";
+			dlog("download writer: write failed error=%d stage=%s offset=%lld durable=%lld total=%lld",
+			     write_error, download_writer::wire::stage_name(writer.helper->error_stage()),
+			     (long long)done, (long long)committed, (long long)total);
 #else
-			error = disk_error();
+			storage_error = write_error;
+			error = disk_error(write_error);
+			dlog("download writer: write failed error=%d stage=media_write offset=%lld durable=%lld total=%lld",
+			     write_error, (long long)done, (long long)committed, (long long)total);
 #endif
+			(void)storage_capacity(file.fd, total - done, storage_mode, "write_failure");
 			break;
 		}
 		done += int64_t(buffered); timings.bytes += int64_t(buffered); reporter.emit(done, total);
 		if (done - committed >= kTorrentCommitBytes || Clock::now() - checkpoint_at >= kTorrentCommitInterval) {
-			if (!checkpoint()) { error = "Could not save the torrent download checkpoint"; break; }
+			if (!checkpoint()) break;
 			// Time spent syncing local storage is not a stalled remote peer.
 			deadline.touch();
 		}
 		timings.emit(done, committed);
 		if (!error.empty()) break;
 	}
-	bool final_saved = checkpoint();
+	// A failed media write has already ended the helper session. Preserve the
+	// preceding durable checkpoint and its original error instead of attempting
+	// another checkpoint and misreporting the write failure as a save failure.
+	bool final_saved = !output_failed && checkpoint();
 #if defined(PLATFORM_PS5_NATIVE) || defined(STREMIO_DOWNLOAD_WRITER_TEST)
 	// A lost reply never permits native writes or an unconfirmed file promotion.
 	// The next helper must acquire the same directory lock before resuming.
 	if (final_saved && !writer.helper->close()) {
-		dlog("download writer: close failed error=%d offset=%lld", writer.helper->error(), (long long)done);
+		const int code = writer.helper->error();
+		storage_error = helper_storage_error(*writer.helper);
+		error = storage_error ? disk_error(storage_error, "Could not finalize the torrent download") : "Could not finalize the torrent download";
+		dlog("download writer: close failed error=%d offset=%lld", code, (long long)done);
+		(void)storage_capacity(file.fd, total - done, storage_mode, "close_failure");
 		final_saved = false;
 	}
 #endif
 	timings.emit(done, committed, true);
-	if (!final_saved) return {DownloadTransferStatus::Error, error.empty() ? "Could not save the torrent download checkpoint" : error, extension, done, total};
+	if (!final_saved) return {DownloadTransferStatus::Error, error, extension, done, total, storage_error};
 	if (cancel.load()) return {DownloadTransferStatus::Cancelled, {}, extension, done, total};
 	if (deadline.expired.load()) {
 		dlog("download torrent: no-progress timeout file=%d saved=%lld total=%lld timeout=%ds",
@@ -790,9 +954,17 @@ DownloadTransferResult transfer_torrent(const DownloadTransferRequest& request, 
 	}
 	if (!error.empty() || done != total) return {DownloadTransferStatus::Error, error.empty() ? "The torrent download is incomplete" : error, extension, done, total};
 #if defined(PLATFORM_PS5_NATIVE) || defined(STREMIO_DOWNLOAD_WRITER_TEST)
-	file.fd = ::open(request.partial_path.c_str(), O_RDONLY | O_NOFOLLOW);
+	if (file.fd < 0) file.fd = ::open(request.partial_path.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
 #endif
-	if (!regular_fd(file.fd, &size) || size != total || !file.close()) return {DownloadTransferStatus::Error, "Could not finalize the torrent download", extension, done, total};
+	if (!regular_fd(file.fd, &size)) {
+		const int code = file_error();
+		return {DownloadTransferStatus::Error, disk_error(code, "Could not finalize the torrent download"), extension, done, total, code};
+	}
+	if (size != total) return {DownloadTransferStatus::Error, "Could not finalize the torrent download", extension, done, total};
+	if (!file.close()) {
+		const int code = file_error();
+		return {DownloadTransferStatus::Error, disk_error(code, "Could not finalize the torrent download"), extension, done, total, code};
+	}
 	if (!probe_media(request.partial_path, cancel)) return {cancel.load() ? DownloadTransferStatus::Cancelled : DownloadTransferStatus::Unsupported, "The selected torrent file does not contain playable audio or video", extension, done, total};
 	reporter.emit(done, total, true);
 	return {DownloadTransferStatus::Complete, {}, extension, done, total};
@@ -999,6 +1171,16 @@ struct OutputIo {
 	const std::atomic<bool>* cancel = nullptr;
 	int64_t length = 0;
 	bool failed = false;
+	int storage_error = 0;
+	int fail_storage(int code) {
+		failed = true;
+		if (!storage_error) {
+			storage_error = code;
+			dlog("download hls: storage failed errno=%d length=%lld", code, (long long)length);
+			(void)storage_capacity(fd, -1, "hls", "write_failure");
+		}
+		return AVERROR(storage_error);
+	}
 	static int write(void* opaque,
 #if LIBAVFORMAT_VERSION_MAJOR >= 61
 	                 const uint8_t* data,
@@ -1008,16 +1190,17 @@ struct OutputIo {
 	                 int count) {
 		auto& self = *static_cast<OutputIo*>(opaque);
 		if (self.cancel->load()) return AVERROR_EXIT;
-		if (count < 0 || !write_all(self.fd, data, size_t(count))) { self.failed = true; return AVERROR(errno ? errno : EIO); }
+		if (count < 0) { self.failed = true; return AVERROR(EINVAL); }
+		if (!write_all(self.fd, data, size_t(count))) return self.fail_storage(file_error());
 		const auto at = ::lseek(self.fd, 0, SEEK_CUR);
-		if (at < 0) { self.failed = true; return AVERROR(EIO); }
+		if (at < 0) return self.fail_storage(file_error());
 		self.length = std::max(self.length, int64_t(at)); return count;
 	}
 	static int64_t seek(void* opaque, int64_t offset, int whence) {
 		auto& self = *static_cast<OutputIo*>(opaque);
 		if (whence == AVSEEK_SIZE) return self.length;
 		const auto next = ::lseek(self.fd, offset, whence & ~AVSEEK_FORCE);
-		if (next < 0) { self.failed = true; return AVERROR(errno); }
+		if (next < 0) return self.fail_storage(file_error());
 		return int64_t(next);
 	}
 };
@@ -1031,8 +1214,14 @@ DownloadTransferResult transfer_hls(const DownloadTransferRequest& request, cons
 	// Restart a paused HLS job from its beginning; direct files and torrents have
 	// a separate, identity-checked byte resume path.
 	File file(::open(request.partial_path.c_str(), O_RDWR | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600));
-	if (!regular_fd(file.fd) || ::fchmod(file.fd, 0600) || ::fsync(file.fd)) return {DownloadTransferStatus::Error, disk_error(), ".mkv"};
-	if (!save_checkpoint(request, json{{"version", 1}, {"kind", "hls"}, {"bytes", 0}, {"total", -1}})) return {DownloadTransferStatus::Error, "Could not save the HLS download checkpoint", ".mkv"};
+	if (!regular_fd(file.fd) || ::fchmod(file.fd, 0600) || ::fsync(file.fd)) {
+		const int code = file_error();
+		return {DownloadTransferStatus::Error, disk_error(code), ".mkv", 0, -1, code};
+	}
+	if (!save_checkpoint(request, json{{"version", 1}, {"kind", "hls"}, {"bytes", 0}, {"total", -1}})) {
+		const int code = file_error();
+		return {DownloadTransferStatus::Error, disk_error(code, "Could not save the HLS download checkpoint"), ".mkv", 0, -1, code};
+	}
 	HlsHooks hooks; hooks.manifests = &manifests; hooks.headers = request.stream.request_headers; hooks.abort = &cancel;
 	AVFormatContext* input = avformat_alloc_context();
 	AVFormatContext* output = nullptr;
@@ -1049,7 +1238,9 @@ DownloadTransferResult transfer_hls(const DownloadTransferRequest& request, cons
 	};
 	auto fail = [&](DownloadTransferStatus status, const std::string& message) {
 		cleanup();
-		::fsync(file.fd);
+		if (!writer.storage_error && ::fsync(file.fd) != 0) writer.fail_storage(file_error());
+		if (writer.storage_error)
+			return DownloadTransferResult{DownloadTransferStatus::Error, disk_error(writer.storage_error), ".mkv", writer.length, -1, writer.storage_error};
 		return DownloadTransferResult{cancel.load() ? DownloadTransferStatus::Cancelled : status, cancel.load() ? "" : message, ".mkv", writer.length, -1};
 	};
 	if (!input) return fail(DownloadTransferStatus::Error, "Could not allocate the HLS reader");
@@ -1130,7 +1321,7 @@ DownloadTransferResult transfer_hls(const DownloadTransferRequest& request, cons
 		}
 		av_packet_rescale_ts(packet, from->time_base, to->time_base);
 		packet->stream_index = mapping[size_t(stream)]; packet->pos = -1;
-		if (av_interleaved_write_frame(output, packet) < 0) return fail(DownloadTransferStatus::Error, writer.failed ? disk_error() : "Could not write every HLS packet to the offline video");
+		if (av_interleaved_write_frame(output, packet) < 0) return fail(DownloadTransferStatus::Error, "Could not write every HLS packet to the offline video");
 		++packets; reporter.emit(writer.length, -1);
 		if (hooks.failed) return fail(DownloadTransferStatus::Error, "An HLS segment could not be downloaded completely");
 	}
@@ -1144,11 +1335,23 @@ DownloadTransferResult transfer_hls(const DownloadTransferRequest& request, cons
 	if (!std::isfinite(first_time) || !std::isfinite(last_time) || last_time - first_time + tolerance < manifests.max_duration) return fail(DownloadTransferStatus::Error, "The saved HLS video is shorter than the complete playlist");
 	if (av_write_trailer(output) < 0) return fail(DownloadTransferStatus::Error, "Could not finalize the offline video container");
 	avio_flush(output_io);
-	if (output_io->error < 0 || writer.failed || ::fsync(file.fd)) return fail(DownloadTransferStatus::Error, disk_error());
+	if (output_io->error < 0 || writer.failed) return fail(DownloadTransferStatus::Error, "Could not finalize the offline video container");
+	if (::fsync(file.fd)) {
+		writer.fail_storage(file_error());
+		return fail(DownloadTransferStatus::Error, "Could not finalize the offline video container");
+	}
 	const int64_t bytes = writer.length;
 	cleanup();
 	int64_t final_size = 0;
-	if (!regular_fd(file.fd, &final_size) || bytes <= 0 || final_size != bytes || !file.close()) return {DownloadTransferStatus::Error, "Could not finalize the complete offline video", ".mkv", bytes, -1};
+	if (!regular_fd(file.fd, &final_size)) {
+		const int code = file_error();
+		return {DownloadTransferStatus::Error, disk_error(code, "Could not finalize the complete offline video"), ".mkv", bytes, -1, code};
+	}
+	if (bytes <= 0 || final_size != bytes) return {DownloadTransferStatus::Error, "Could not finalize the complete offline video", ".mkv", bytes, -1};
+	if (!file.close()) {
+		const int code = file_error();
+		return {DownloadTransferStatus::Error, disk_error(code, "Could not finalize the complete offline video"), ".mkv", bytes, -1, code};
+	}
 	if (!probe_media(request.partial_path, cancel)) return {cancel.load() ? DownloadTransferStatus::Cancelled : DownloadTransferStatus::Error, "The downloaded HLS container could not be opened", ".mkv", bytes, -1};
 	reporter.emit(bytes, bytes, true);
 	return {DownloadTransferStatus::Complete, {}, ".mkv", bytes, bytes};

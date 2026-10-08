@@ -52,7 +52,11 @@ struct Address {
 class NativeChannel final : public Channel {
 public:
     explicit NativeChannel(int socket) : socket_(socket) {}
-    ~NativeChannel() override { if (socket_ >= 0) sceNetSocketClose(socket_); }
+    ~NativeChannel() override {
+        const int saved = errno;
+        if (socket_ >= 0) sceNetSocketClose(socket_);
+        errno = saved;
+    }
     std::int64_t send(const void* data, std::size_t size) override {
         const auto count = sceNetSend(socket_, data, size, 0);
         if (count < 0) errno = EIO;
@@ -84,7 +88,7 @@ std::unique_ptr<Channel> launch_helper() {
     if (helper_path.empty()) { errno = ENOENT; return {}; }
     const int descriptor = ::open(helper_path.c_str(), O_RDONLY | O_NOFOLLOW);
     if (descriptor < 0) return {};
-    struct File { int fd; ~File() { ::close(fd); } } file{descriptor};
+    struct File { int fd; ~File() { const int saved = errno; ::close(fd); errno = saved; } } file{descriptor};
     struct stat info{};
     if (::fstat(file.fd, &info) || !S_ISREG(info.st_mode) || info.st_size < 64 ||
         info.st_size > (16ll << 20)) { errno = EINVAL; return {}; }
@@ -138,6 +142,7 @@ Client::Client(std::unique_ptr<Channel> channel)
 bool Client::fail(int error, wire::Stage stage) {
     if (!error_) { error_ = error ? error : EIO; error_stage_ = stage; }
     channel_.reset();
+    errno = error_;
     return false;
 }
 
@@ -169,11 +174,22 @@ bool Client::exchange(wire::Operation operation, const void* data, std::size_t s
 }
 
 bool Client::begin(std::string_view job, std::int64_t candidate, std::int64_t total) {
-    if (begun_ || sequence_ || !wire::job_id(job) || candidate < 0 || total <= 0 || candidate > total)
+    return begin(wire::root, job, candidate, total);
+}
+
+bool Client::begin(std::string_view directory, std::string_view job, std::int64_t candidate, std::int64_t total) {
+    if (begun_ || sequence_ || !wire::job_id(job) || !wire::directory_path(directory) ||
+        candidate < 0 || total <= 0 || candidate > total)
         return fail(EINVAL);
+#ifdef PLATFORM_PS5_NATIVE
+    if (!wire::download_directory(directory)) return fail(EINVAL);
+#endif
     offset_ = candidate; total_ = total;
+    std::string payload(job);
+    payload.push_back('\0');
+    payload.append(directory);
     wire::Message reply;
-    if (!exchange(wire::Operation::begin, job.data(), job.size(), reply)) return false;
+    if (!exchange(wire::Operation::begin, payload.data(), payload.size(), reply)) return false;
     offset_ = reply.offset;
     begun_ = true;
     return true;

@@ -52,6 +52,15 @@ int main() {
           "independently known seeder counts survive missing peer totals");
     check(download_error_text("Download source returned HTTP 429", true) == "La sorgente ha risposto con HTTP 429.",
           "existing safe diagnostics keep their localization");
+    check(download_error_text("The download destination could not allocate more storage", true) ==
+          "La destinazione del download non riesce ad allocare altro spazio.",
+          "allocation refusal identifies the destination without claiming the entire SSD is full");
+    check(download_error_text("The download folder does not allow writing", true) ==
+          "La cartella dei download non consente la scrittura.",
+          "access refusal remains distinct from allocation failure");
+    check(download_error_text("Download metadata is missing or damaged. You can delete the saved files.", true) ==
+          "Le informazioni del download sono mancanti o danneggiate. Puoi eliminare i file salvati.",
+          "recovery entries explain that their saved files remain manageable");
 
     if (failures) return 1;
     std::cout << "PASS: " << checks << " download telemetry formatting checks (unknown values, rounding, overflow, IT/EN)\n";

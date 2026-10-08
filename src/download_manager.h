@@ -41,6 +41,19 @@ struct DownloadEntry {
 	int64_t remaining_seconds = -1;
 	int connected_peers = -1, connected_seeders = -1;
 	bool playable_while_downloading = false;
+	// Recovery-only entries expose unrecognized owned storage for explicit
+	// removal. No source, title identity or playable media is inferred.
+	bool recovery_only = false;
+	// Allocated bytes of regular files in the job directory; -1 means it could
+	// not be measured completely. This includes saved metadata and artwork.
+	int64_t disk_bytes = -1;
+};
+
+struct DownloadRelocationStatus {
+ bool active = false, pending = false;
+ int files_done = 0, files_total = 0;
+ int64_t bytes_done = 0, bytes_total = 0;
+ std::string title, phase, error, destination;
 };
 
 // A bounded, persistent, sequential download queue. Network transfers happen on
@@ -54,12 +67,27 @@ public:
 	DownloadManager& operator=(const DownloadManager&) = delete;
 
 	// Networking is disabled initially and remains so until set_enabled(true).
-	// Jobs interrupted by shutdown/crash are restored as Paused, never Complete.
+	// Incomplete jobs interrupted by shutdown/crash are restored as Paused.
+	// Final files require matching completion metadata before they are playable.
 	// A failed startup is retried on the next explicit enqueue, never in a loop.
 	// init's error and storage_error() contain local operation/path/errno details
 	// for diagnostics; enqueue keeps a separate user-facing error message.
+	// init returns write readiness. A readable inventory is still published when
+	// it returns false because storage is full or read-only.
 	bool init(const std::string& data_dir, std::string* error = nullptr);
+	// Registry selection wins over the preference fallback. Interrupted moves
+	// are reconciled using bounded metadata; retry resumes them on a worker.
+	bool init(const std::string& data_parent, const std::string& registry_appdata,
+		const std::string& preferred_directory, std::string* error = nullptr);
+	// Worker-only operation: quiesce and move every saved download to this exact
+	// directory. A durable journal preserves interrupted migrations for retry.
+	bool set_download_directory(const std::string& directory, std::string& error);
+	DownloadRelocationStatus relocation_status() const;
+	std::string download_directory() const;
+	std::vector<std::string> download_directories() const;
 	bool storage_available() const;
+	// Existing downloads remain readable/deletable when new writes are denied.
+	bool storage_readable() const;
 	std::string storage_error() const;
 	void shutdown();
 	std::string enqueue(const DownloadRequest& request, std::string& error);

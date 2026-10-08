@@ -162,6 +162,8 @@ void App::login_done(const std::string& auth_key) {
 }
 
 void App::sign_out() {
+	if (next_episode_visible && watching_) watch_stop(true);
+	else watch_cancel_next_episode();
 	login_close(); // Invalidate every pending code/poll before removing this session.
 	++account_generation_;
 	if (download_art_cancel_) download_art_cancel_->store(true);

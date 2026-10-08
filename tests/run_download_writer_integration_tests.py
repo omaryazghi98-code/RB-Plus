@@ -29,6 +29,7 @@ def main():
         "src/torrent/engine.h", "src/http.cpp", "src/netstream.cpp", "src/util.cpp",
         "tests/test_download_writer_client.cpp", "tests/test_download_writer_transfer.cpp",
         "tests/download_writer_at_syscalls.cpp",
+        "tests/download_writer_faults.c",
         "tests/run_download_writer_integration_tests.py",
     )]
 
@@ -45,6 +46,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix="stremio-writer-integration-") as temporary:
         folder = Path(temporary)
         helper = folder / "download-writer-helper"
+        faults = folder / "download-writer-faults.so"
+        subprocess.run(["cc", "-shared", "-fPIC", "-O2", "-Wall", "-Wextra", "-Werror",
+                        str(root / "tests/download_writer_faults.c"), "-ldl", "-o", str(faults)],
+                       check=True, timeout=30)
         subprocess.run(common + ["-DSTREMIO_DOWNLOAD_WRITER_TEST", "-DSTREMIO_DOWNLOAD_WRITER_AT_TEST",
                                  "-I" + str(root / "native"),
                                  str(root / "native/download_writer/helper/main.cpp"),
@@ -65,7 +70,7 @@ def main():
             "-I" + str(root / "src"), "-I" + str(root / "third_party"), "-I" + str(root / "native"),
             str(root / "src/download_transfer.cpp"), str(root / "native/download_writer/client.cpp"),
             str(root / "tests/test_download_writer_transfer.cpp"), str(root / "src/netstream.cpp"),
-            str(root / "src/http.cpp"), str(root / "src/util.cpp"), *dependencies, "-o", str(transfer),
+            str(root / "src/http.cpp"), str(root / "src/util.cpp"), "-Wl,--wrap=fstatfs", *dependencies, "-o", str(transfer),
         ], check=True, timeout=180)
         fixture = folder / "synthetic.mp4"
         subprocess.run([
@@ -77,7 +82,7 @@ def main():
         assert padding > 8
         fixture.write_bytes(original + struct.pack(">I4s", padding, b"free") + bytes(padding - 8))
         output["transfer"] = subprocess.check_output(
-            [str(transfer), str(helper), str(folder / "downloads"), str(fixture)],
+            [str(transfer), str(helper), str(folder / "downloads"), str(fixture), str(faults)],
             text=True, timeout=45, env=environment).strip()
         print(output["transfer"], flush=True)
     assert hashes() == initial, "sources changed during the run; report was not published"

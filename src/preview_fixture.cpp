@@ -142,12 +142,12 @@ void set_addons(App& app, const Fixture& fixture) {
 }
 
 bool load_preview_fixture(App& app, const std::string& scenario, const std::string& fixture_path) {
-    static const std::array<const char*, 34> names{{"home", "detail", "streams", "discover", "library", "addons",
+    static const std::array<const char*, 38> names{{"home", "detail", "streams", "discover", "library", "addons",
                                                  "settings", "dropdown", "login", "keyboard", "player", "search",
                                                  "nav", "tracks", "subtitles", "launch", "dialog", "home_page2",
                                                  "home_last", "login_error", "login_expired", "account_signed_in", "logout", "subtitle_appearance", "audio_languages", "movie_streams", "episodes",
                                                  "date_options", "launch_direct", "episodes_last", "buffering",
-                                                 "downloads", "downloads_empty", "downloads_last"}};
+                                                 "downloads", "downloads_empty", "downloads_last", "download_folder", "download_notice", "next_episode", "download_folder_moving"}};
     if (std::find(names.begin(), names.end(), scenario) == names.end()) return false;
     Fixture fixture;
     if (!load_json(fixture_path, fixture.data) || !fixture.data.is_object()) return false;
@@ -192,6 +192,11 @@ bool load_preview_fixture(App& app, const std::string& scenario, const std::stri
     app.busy = false;
     app.home_row = app.home_col = app.search_row = app.search_col = 0;
     app.dd_visible = app.login_visible = app.input_visible_ = app.launch_visible = false;
+    app.directory_picker_visible = app.download_directory_notice = app.next_episode_visible = false;
+    app.directory_picker_loading = app.directory_picker_committing = app.directory_picker_error = false;
+    app.directory_move_done = 0; app.directory_move_total = -1;
+    app.directory_move_items_done = app.directory_move_items_total = 0;
+    app.directory_move_title.clear();
     app.dd_multiselect = false;
     app.login_state = App::LoginState::loading;
     app.login_seconds_remaining = 0;
@@ -308,6 +313,24 @@ bool load_preview_fixture(App& app, const std::string& scenario, const std::stri
             app.download_sel = scenario == "downloads_last" ? 5 : 1;
             app.download_status = italian ? "2 disponibili offline · 1 in corso" : "2 available offline · 1 downloading";
         }
+    } else if (scenario == "download_folder" || scenario == "download_folder_moving") {
+        app.view = "settings"; app.nav_sel = 4;
+        app.directory_picker_visible = true;
+        app.directory_picker_path = "/mnt/ext1/Movies";
+        app.directory_picker_entries = {"..", "Animation", "Documentaries", "Series", "Stremio Plus Downloads"};
+        app.directory_picker_sel = 4;
+        app.directory_picker_status.clear();
+        if (scenario == "download_folder_moving") {
+            app.directory_picker_committing = true;
+            app.directory_move_done = 6ll << 30;
+            app.directory_move_total = 18ll << 30;
+            app.directory_move_items_done = 1; app.directory_move_items_total = 4;
+            app.directory_move_title = "Succession · S1 E2";
+            app.directory_picker_status = app.ui_language == "it" ? "Spostamento dei download…" : "Moving downloads…";
+        }
+    } else if (scenario == "download_notice") {
+        set_detail(app, fixture, true);
+        app.download_directory_notice = true;
     } else if (scenario == "addons") {
         app.view = "addons"; app.nav_sel = 4;
     } else if (scenario == "settings" || scenario == "subtitle_appearance" || scenario == "audio_languages" || scenario == "date_options") {
@@ -357,7 +380,7 @@ bool load_preview_fixture(App& app, const std::string& scenario, const std::stri
         app.input_visible_ = true; app.input_title = "Cerca su Stremio";
         app.input_hint = "Film, serie, persone o il titolo che hai in mente.";
         app.input_value = "Interstellar";
-    } else if (scenario == "player" || scenario == "tracks" || scenario == "subtitles" || scenario == "buffering") {
+    } else if (scenario == "player" || scenario == "tracks" || scenario == "subtitles" || scenario == "buffering" || scenario == "next_episode") {
         app.watching_ = true;
         app.w_title = hero.title;
         app.w_subtitle = "Anteprima dei controlli · 1920 × 1080";
@@ -369,7 +392,23 @@ bool load_preview_fixture(App& app, const std::string& scenario, const std::stri
         app.m_subs = {{"Disattivati", false, ""}, {"Italiano · SRT", true, "ita"}, {"English · SRT", false, "eng"}};
         app.m_audio_sel = 0; app.m_sub_sel = 1; app.m_col = 0; app.m_delay = "+0.00 s";
         app.w_stats.clear();
-        if (scenario == "tracks") {
+        if (scenario == "next_episode") {
+            set_detail(app, fixture, false);
+            app.next_episode_visible = true;
+            app.next_episode_seconds = 12;
+            app.next_episode_sel = 0;
+            app.next_episode_label = "S1 · E2";
+            if (!app.d_episodes.empty()) {
+                const auto& episode = app.d_episodes[std::min<std::size_t>(1, app.d_episodes.size() - 1)];
+                app.next_episode_title = episode.title;
+                app.next_episode_thumb = episode.thumb;
+            } else {
+                app.next_episode_title = "Next episode";
+                app.next_episode_thumb = hero.background;
+            }
+            app.info_visible = false;
+            app.w_sub_rml.clear();
+        } else if (scenario == "tracks") {
             app.menu_visible = true; app.m_col = 1;
             app.m_subs = {{"Disattivati", false, ""}, {"Italiano · SRT · OpenSubtitles", true, "ita"},
                           {"Italiano · Community Subtitles", false, "ita"}, {"English · SRT · OpenSubtitles", false, "eng"},

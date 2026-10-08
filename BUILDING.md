@@ -46,6 +46,10 @@ and the build rejects inconsistent metadata. A build receipt records the
 source and packaged file identities. Packaging checks that receipt before
 creating the image.
 
+The metadata gate also requires `downloadDataSize` to remain `0`. Appdata and
+selected video folders grow on demand; increasing the private-volume field
+would reserve storage at installation and is rejected before signing.
+
 To keep a clean build separate from an existing one:
 
 ```sh
@@ -106,15 +110,19 @@ integration checks use the completed desktop build:
 
 ```sh
 python3 tests/run_download_manager_tests.py
+python3 tests/run_download_move_failures_tests.py
 python3 tests/run_download_io_tests.py
-python3 tests/run_download_writer_tests.py
 python3 tests/run_download_writer_posix_at_tests.py
 python3 tests/run_download_writer_integration_tests.py
+python3 tests/run_metadata_storage_tests.py
+python3 tests/run_ps5_storage_tests.py
+python3 tests/run_download_directory_tests.py
 python3 tests/run_native_fcntl_tests.py
 python3 tests/run_torrent_download_integration_tests.py
 python3 tests/run_growing_file_tests.py
 python3 tests/run_player_tests.py build/desktop
 python3 tests/run_download_app_tests.py build/desktop
+python3 tests/run_next_episode_tests.py build/desktop
 python3 tests/run_preferences_tests.py build/desktop
 python3 tests/run_preferences_tests.py build/desktop --console-policy
 ```

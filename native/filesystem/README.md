@@ -14,22 +14,27 @@ port 9021. The helper validates the target process and Title ID `PPSA74126`.
 The versioned request and response messages are defined in `protocol.hpp`.
 
 The application checks access again after a successful grant and resolves its
-existing app and data mounts. Account settings and artwork caches keep their
-existing storage location. The helper is requested during startup and does not
-install a persistent service.
+app mount. Account settings and streaming caches use `/data/Stremio/appdata`.
+The manifest reserves no `/download0` volume. If an old mount remains
+accessible, startup copies only missing settings, progress, and configuration
+files into appdata; it never copies media caches or deletes the old files.
+The helper is requested during startup and does not install a persistent service.
 
 ## Storage and diagnostics
 
-Downloads and diagnostics use `/data/Stremio`. Startup checks cover directory
+Diagnostics use `/data/Stremio`. Download destinations are chosen in Settings,
+including mounted volumes under `/mnt`; previously used locations remain in
+the persistent download registry. Startup checks cover directory
 access, file creation, reading, writing, synchronization, renaming and removal.
 File permissions alone do not replace the filesystem capability required by
 the console's loader.
 
 When the log directory is accessible, startup stages are recorded in
 `boot-current.txt`, with the preceding launch retained as `boot-last.txt`.
-If filesystem access fails, the application continues using its sandbox
-mounts and reports the unavailable storage. It does not create an alternative
-log directory.
+If appdata cannot be safely opened, the application displays a storage error
+with Retry and Exit before initializing accounts or cache workers. It does
+not create an alternative `/data` inside its sandbox or treat unreadable
+settings as a signed-out account. Logs have no alternative directory.
 
 ## Building
 

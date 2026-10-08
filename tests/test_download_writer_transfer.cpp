@@ -22,6 +22,7 @@
 #include <spawn.h>
 #include <stdexcept>
 #include <sys/socket.h>
+#include <sys/vfs.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -32,13 +33,16 @@ namespace wire = download_writer::wire;
 using namespace std::chrono_literals;
 namespace {
 int checks = 0, job_number = 0;
-std::string media_bytes, helper_path, helper_root;
+std::string media_bytes, helper_path, helper_root, fault_library;
+std::mutex log_mutex;
+std::vector<std::string> recorded_logs;
 std::atomic<int64_t> first_read{-1};
 std::atomic<int> readers_opened{0}, readers_closed{0};
 std::atomic<bool>* cancel_during_read = nullptr;
 int64_t cancel_at = -1, error_at = -1;
 
-enum class Fault { None, HoldWrite, DropWrite, DropInitialCheckpoint, DropFinalCheckpoint, DropClose, NoHelper };
+enum class Fault { None, HoldWrite, DropWrite, DropInitialCheckpoint, DropFinalCheckpoint, DropClose, NoHelper,
+                   MediaNoSpace, MediaDenied, MediaQuota };
 struct Control {
     Fault fault = Fault::None;
     std::mutex mutex;
@@ -47,6 +51,9 @@ struct Control {
     std::atomic<bool> injected{false}, gate_timeout{false};
     std::atomic<int> launched{0}, destroyed{0};
     std::atomic<int64_t> acknowledged{0};
+    int64_t available_bytes = -1;
+    bool capacity_unavailable = false;
+    int unknown_capacity_field = 0;
 };
 std::shared_ptr<Control> control;
 
@@ -75,7 +82,21 @@ public:
         ::posix_spawn_file_actions_addclose(&actions, sockets[0]);
         ::posix_spawn_file_actions_addclose(&actions, sockets[1]);
         char* arguments[]{helper_path.data(), helper_root.data(), nullptr};
-        const int result = ::posix_spawn(&pid_, helper_path.c_str(), &actions, nullptr, arguments, environ);
+        std::vector<std::string> environment;
+        for (char** item = environ; *item; ++item) environment.emplace_back(*item);
+        int write_error = 0;
+        if (state_->fault == Fault::MediaNoSpace) write_error = ENOSPC;
+        if (state_->fault == Fault::MediaDenied) write_error = EACCES;
+        if (state_->fault == Fault::MediaQuota) write_error = EDQUOT;
+        if (write_error) {
+            environment.emplace_back("LD_PRELOAD=" + fault_library);
+            environment.emplace_back("STREMIO_TEST_WRITE_LIMIT=1048576");
+            environment.emplace_back("STREMIO_TEST_WRITE_ERRNO=" + std::to_string(write_error));
+        }
+        std::vector<char*> variables;
+        for (auto& value : environment) variables.push_back(value.data());
+        variables.push_back(nullptr);
+        const int result = ::posix_spawn(&pid_, helper_path.c_str(), &actions, nullptr, arguments, variables.data());
         ::posix_spawn_file_actions_destroy(&actions);
         ::close(sockets[1]);
         if (result) { ::close(sockets[0]); throw std::runtime_error("helper spawn failed"); }
@@ -97,6 +118,8 @@ public:
         }
         if (!reaped) { ::kill(pid_, SIGKILL); while (::waitpid(pid_, &status, 0) < 0 && errno == EINTR) {} }
         ++state_->destroyed;
+        // Cleanup must not replace the filesystem error returned by the helper.
+        errno = ERANGE;
     }
     int64_t send(const void* data, size_t count) override {
         // Headers, large data and acknowledgements all cross fragmented calls.
@@ -172,6 +195,8 @@ void reset(Fault fault = Fault::None) {
     first_read = -1;
     cancel_during_read = nullptr;
     cancel_at = error_at = -1;
+    std::lock_guard<std::mutex> lock(log_mutex);
+    recorded_logs.clear();
 }
 DownloadTransferRequest request() {
     std::string name = "d" + std::string(32, '0');
@@ -203,6 +228,32 @@ void resume(const DownloadTransferRequest& item, int64_t expected) {
     check(first_read == expected, "resume starts exactly at the acknowledged durable checkpoint");
 }
 } // namespace
+
+void diagnostics_note(const std::string&, const std::string& message) {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    recorded_logs.push_back(message);
+    errno = ERANGE;
+}
+
+extern "C" int __real_fstatfs(int, struct statfs*);
+extern "C" int __wrap_fstatfs(int fd, struct statfs* result) {
+    if (control && control->capacity_unavailable) { errno = ENOSYS; return -1; }
+    const int status = __real_fstatfs(fd, result);
+    if (status == 0 && control && control->available_bytes >= 0) {
+        result->f_bsize = 1;
+        result->f_bavail = uint64_t(control->available_bytes);
+        result->f_bfree = result->f_bavail;
+        result->f_blocks = result->f_bavail + (1u << 20);
+    }
+    if (status == 0 && control) {
+        if (control->unknown_capacity_field == 1) result->f_bsize = -1;
+        if (control->unknown_capacity_field == 2) result->f_blocks = -1;
+        if (control->unknown_capacity_field == 3) result->f_bfree = -1;
+        if (control->unknown_capacity_field == 4) result->f_bavail = -1;
+        if (control->unknown_capacity_field == 5) result->f_ffree = -1;
+    }
+    return status;
+}
 
 namespace bt {
 struct Torrent {};
@@ -236,11 +287,12 @@ int Engine::read(const std::shared_ptr<Torrent>&, int, int, int64_t position, ui
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 4) return 2;
+        if (argc != 5) return 2;
         helper_path = fs::absolute(argv[1]).string();
         helper_root = fs::absolute(argv[2]).string();
         fs::create_directories(helper_root);
         media_bytes = bytes(argv[3]);
+        fault_library = fs::absolute(argv[4]).string();
         check(media_bytes.size() > (20u << 20) && media_bytes.size() % 16384 != 0, "fixture covers multiple blocks and an unaligned tail");
         ::signal(SIGPIPE, SIG_IGN);
         http_init("");
@@ -292,7 +344,71 @@ int main(int argc, char** argv) {
             check(control->injected && result.status == DownloadTransferStatus::Error && result.done == 0 && published == 0, "a lost write acknowledgement never publishes or completes the data");
             check(fs::file_size(item.partial_path) == (4u << 20) && checkpoint_bytes(item) == 0, "unacknowledged physical bytes stay outside the durable checkpoint");
             check(control->destroyed == 1, "a failed exchange closes its channel");
+            check(result.storage_error == 0, "a lost helper reply is not classified as a filesystem failure");
             resume(item, 0);
+        }
+        for (const auto fault : {Fault::MediaNoSpace, Fault::MediaDenied, Fault::MediaQuota}) {
+            reset(fault); const auto item = request(); std::atomic<bool> cancel{false};
+            const int expected = fault == Fault::MediaNoSpace ? ENOSPC : fault == Fault::MediaDenied ? EACCES : EDQUOT;
+            int64_t published = -1;
+            const auto result = download_transfer(item, [&](const DownloadTransferProgress& progress) { published = progress.done; }, cancel);
+            check(result.status == DownloadTransferStatus::Error && result.storage_error == expected,
+                  "the original media-write errno survives logging and helper cleanup");
+            check(result.done == 0 && published == 0 && checkpoint_bytes(item) == 0,
+                  "a partial failed write does not advance or replace the durable checkpoint");
+            check(fs::file_size(item.partial_path) > 0 && fs::file_size(item.partial_path) < (4u << 20),
+                  "the injected filesystem error follows a real partial write");
+            check(result.error == (fault == Fault::MediaDenied ? "The download folder does not allow writing" :
+                  "The download destination could not allocate more storage"),
+                  "storage errors distinguish allocation failure from permission denial");
+            bool false_checkpoint = false, capacity_logged = false;
+            {
+                std::lock_guard<std::mutex> lock(log_mutex);
+                for (const auto& message : recorded_logs) {
+                    false_checkpoint |= message.find("download checkpoint: failed") != std::string::npos;
+                    capacity_logged |= message.find("phase=write_failure") != std::string::npos;
+                }
+            }
+            check(!false_checkpoint && capacity_logged, "write failure records destination capacity without a false checkpoint failure");
+            check(control->destroyed == 1, "filesystem failure releases the helper and its exclusive lock");
+            resume(item, 0);
+        }
+        {
+            reset(); const auto item = request(); std::atomic<bool> cancel{false};
+            control->available_bytes = int64_t(media_bytes.size()) + (16ll << 20) - 1;
+            const auto result = download_transfer(item, {}, cancel);
+            check(result.status == DownloadTransferStatus::Error && result.storage_error == ENOSPC && first_read == -1,
+                  "known insufficient destination capacity is rejected before reading torrent bytes");
+            check(result.error == "Insufficient storage for this download" && fs::file_size(item.partial_path) == 0,
+                  "capacity preflight leaves an empty unpromoted media file");
+        }
+        {
+            reset(); const auto item = request(); std::atomic<bool> cancel{false};
+            constexpr int64_t prefix = 4ll << 20;
+            std::ofstream(item.partial_path, std::ios::binary).write(media_bytes.data(), prefix);
+            std::ofstream(item.checkpoint_path) << json{{"version", 1}, {"kind", "torrent"}, {"source", "0123456789abcdef0123456789abcdef01234567:0"}, {"bytes", prefix}, {"total", media_bytes.size()}, {"extension", ".mp4"}};
+            control->available_bytes = int64_t(media_bytes.size()) - prefix + (16ll << 20);
+            const auto result = download_transfer(item, {}, cancel);
+            complete(item, result);
+            check(first_read == prefix, "capacity preflight uses only the remaining validated prefix and preserves resume");
+        }
+        {
+            reset(); const auto item = request(); std::atomic<bool> cancel{false};
+            control->capacity_unavailable = true;
+            complete(item, download_transfer(item, {}, cancel));
+            check(first_read == 0, "unknown filesystem capacity is not interpreted as zero free bytes");
+        }
+        for (int field = 1; field <= 5; ++field) {
+            reset(); const auto item = request(); std::atomic<bool> cancel{false};
+            control->unknown_capacity_field = field;
+            complete(item, download_transfer(item, {}, cancel));
+            bool preserved_unknown = false;
+            {
+                std::lock_guard<std::mutex> lock(log_mutex);
+                for (const auto& message : recorded_logs)
+                    preserved_unknown |= message.find(field == 5 ? "free_inodes=-1" : "phase=preflight known=0") != std::string::npos;
+            }
+            check(preserved_unknown, "undefined statfs fields retain their signed unknown value without blocking downloads");
         }
         for (const auto fault : {Fault::DropFinalCheckpoint, Fault::DropClose}) {
             reset(fault); const auto item = request(); std::atomic<bool> cancel{false};

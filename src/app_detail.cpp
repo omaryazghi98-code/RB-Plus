@@ -426,6 +426,54 @@ void App::detail_set_season(int idx) {
 	dirty_all();
 }
 
+const Video* App::detail_next_episode(const std::string& current_id) const {
+	// Work from complete metadata and the same ordering used by the carousel;
+	// offering the next episode must not change the current season/selection.
+	const auto current = std::find_if(d_meta_.videos.begin(), d_meta_.videos.end(),
+	    [&](const Video& video) { return video.id == current_id; });
+	if (current == d_meta_.videos.end() || current_id.empty()) return nullptr;
+	const int season = episode_season(*current);
+	auto episodes = [&](int selected_season) {
+		std::vector<const Video*> result;
+		std::set<std::string> seen;
+		for (const auto& video : d_meta_.videos)
+			if (!video.id.empty() && episode_season(video) == selected_season && seen.insert(video.id).second)
+				result.push_back(&video);
+		std::stable_sort(result.begin(), result.end(), [](const Video* a, const Video* b) {
+			if ((a->episode > 0) != (b->episode > 0)) return a->episode > 0;
+			return a->episode > 0 && b->episode > 0 && a->episode < b->episode;
+		});
+		return result;
+	};
+	const auto videos = episodes(season);
+	for (size_t i = 0; i < videos.size(); ++i)
+		if (videos[i]->id == current_id && i + 1 < videos.size()) return videos[i + 1];
+	if (season <= 0) return nullptr;
+	int next_season = INT_MAX;
+	for (const auto& video : d_meta_.videos) {
+		const int candidate = episode_season(video);
+		if (!video.id.empty() && candidate > season && candidate < next_season) next_season = candidate;
+	}
+	if (next_season == INT_MAX) return nullptr;
+	const auto next = episodes(next_season);
+	return next.empty() ? nullptr : next.front();
+}
+
+bool App::detail_select_episode(const std::string& id) {
+	const auto video = std::find_if(d_meta_.videos.begin(), d_meta_.videos.end(),
+	    [&](const Video& candidate) { return candidate.id == id; });
+	if (video == d_meta_.videos.end()) return false;
+	const auto season = std::find(d_seasons_.begin(), d_seasons_.end(), episode_season(*video));
+	if (season == d_seasons_.end()) return false;
+	detail_set_season(int(season - d_seasons_.begin()));
+	for (size_t i = 0; i < d_season_videos_.size(); ++i) {
+		if (d_season_videos_[i]->id != id) continue;
+		d_episode_sel = int(i);
+		return true;
+	}
+	return false;
+}
+
 void App::detail_update_resume() {
 	d_resume.clear();
 	for (auto& cw : continue_watching()) {

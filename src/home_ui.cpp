@@ -8,6 +8,7 @@
 #include "core/input.hpp"
 #include "core/tween.hpp"
 #include "ui/components/button.hpp"
+#include "ui/components/breadcrumb.hpp"
 #include "ui/components/carousel.hpp"
 #include "ui/components/dialog.hpp"
 #include "ui/components/form.hpp"
@@ -600,33 +601,36 @@ struct HomeUi::Impl {
     ui::TabBar season;
     ui::Carousel episodes;
     ui::TabBar sources;
-    ui::ListView streams, choices, audio, subtitles, downloads;
+    ui::ListView streams, choices, audio, subtitles, downloads, directories;
+    ui::Breadcrumb directory_path;
     std::unordered_map<std::string, ui::ProgressBar> download_progress;
     ui::TabBar track_tabs;
     ui::Slider subtitle_delay;
     ui::MediaControls media;
-    ui::ProgressBar work, launch_work;
-    ui::Spinner spinner, launch_spinner, playback_spinner;
+    ui::ProgressBar work, launch_work, directory_move;
+    ui::Spinner spinner, launch_spinner, playback_spinner, directory_spinner;
     ui::EmptyState empty;
     ui::Sheet dropdown, keyboard_sheet, tracks, source_info;
     ui::TextView source_text;
-    ui::Dialog dialog;
-    ui::PushButton login_retry;
+    ui::Dialog dialog, directory_notice;
+    ui::PushButton login_retry, next_play, next_ignore;
     ui::Keyboard keyboard;
     ui::TextField input;
     ui::LoadingScreen loader;
     ui::ToastStack toasts;
     std::array<ui::StatTile, 3> torrent_stats;
+    ui::ProgressBar next_countdown;
     Feedback pending;
 
     std::string last_view, grid_view, settings_schema, last_toast, last_banner;
     std::uint64_t last_toast_revision = 0;
     std::string episodes_stamp, streams_stamp, choices_stamp, audio_stamp, subs_stamp, dropdown_stamp, downloads_stamp;
+    std::string directories_stamp, directory_path_stamp;
     std::string last_language, sub_source, sub_text;
     std::string hero_name, hero_image, hero_logo, hero_desc, hero_meta;
     std::string old_hero_name, old_hero_image, old_hero_logo, old_hero_desc, old_hero_meta;
     hui::tween::Spring row_scroll, page_enter, watch_alpha;
-    float hero_mix = 1, time = 0, delay_focus = 0;
+    float hero_mix = 1, time = 0, delay_focus = 0, next_enter = 0;
     bool last_input = false, last_dropdown = false, last_launch = false;
     bool use_dialog = false;
     float shelf_top = 506;
@@ -709,6 +713,36 @@ struct HomeUi::Impl {
         downloads.content = [this](Canvas& c, const Rect& box, const ui::ListItem&, int index, float focus) {
             paint_download(c, box, index, focus);
         };
+
+        style_list(directories, 76, 27);
+        directories.style.panel = false;
+        directories.style.cards = true;
+        directories.style.padding = 20;
+        directories.style.leading_width = 60;
+        directories.style.focus_shift = 0;
+        directories.set_bounds({118, 386, 800, 544});
+        directories.leading = [this](Canvas& c, const Rect& box, const ui::ListItem& item, int, float) {
+            const float x = box.x + 4, y = box.cy();
+            const auto ink = item.tag == 1 ? theme.accent : theme.text_muted;
+            c.list.rounded_rect({x, y - 14, 18, 10}, 3, ink);
+            c.list.rounded_rect({x, y - 9, 40, 26}, 4, ink);
+            if (item.tag == 1) {
+                c.list.line(x + 20, y + 10, x + 20, y - 3, 2.5f, theme.surface);
+                c.list.line(x + 14, y + 2, x + 20, y - 4, 2.5f, theme.surface);
+                c.list.line(x + 26, y + 2, x + 20, y - 4, 2.5f, theme.surface);
+            }
+        };
+        directory_path.set_bounds({1026, 349, 756, 42});
+        directory_path.style.text_size = 26;
+        directory_path.style.separator = ui::CrumbSeparator::slash;
+        directory_path.style.max_segments = 6;
+        directory_spinner.style.kind = ui::SpinnerKind::arc;
+        directory_spinner.set_bounds({1748, 204, 30, 30});
+        directory_move.set_bounds({1026, 751, 756, 9});
+        directory_move.style.height = 9;
+        directory_move.style.placement = ui::LabelPlacement::none;
+        directory_move.style.radius_source = ui::RadiusSource::pill;
+        directory_move.style.finish_flash = false;
 
         filters.style.kind = ui::TabKind::boxed;
         filters.style.height = 54;
@@ -970,6 +1004,23 @@ struct HomeUi::Impl {
         dialog.style.width = 820;
         dialog.style.title_size = 38;
         dialog.style.body_size = 27;
+        directory_notice.style.width = 820;
+        directory_notice.style.title_size = 38;
+        directory_notice.style.body_size = 27;
+
+        next_play.set_bounds({994, 838, 384, 66});
+        next_ignore.set_bounds({1396, 838, 396, 66});
+        next_play.style.role = ui::ButtonRole::primary;
+        next_ignore.style.role = ui::ButtonRole::secondary;
+        next_play.style.text_size = next_ignore.style.text_size = 26;
+        next_play.style.on_page = next_ignore.style.on_page = false;
+        next_play.style.rumble = next_ignore.style.rumble = .18f;
+        next_countdown.set_bounds({994, 925, 798, 6});
+        next_countdown.style.height = 6;
+        next_countdown.style.mode = ui::ProgressMode::determinate;
+        next_countdown.style.placement = ui::LabelPlacement::none;
+        next_countdown.style.radius_source = ui::RadiusSource::pill;
+        next_countdown.style.finish_flash = false;
 
         loader.style.layout = ui::LoadingLayout::corner;
         loader.style.indicator = ui::LoadingIndicator::none;
@@ -1090,10 +1141,8 @@ struct HomeUi::Impl {
         if (!image || !texture_sizes) return false;
         const auto [width, height] = texture_sizes(app.launch_logo);
         if (width <= 0 || height <= 0) return false;
-        // Cap wordmarks at half the former full-width limit. Preserve aspect
-        // ratio, left alignment and vertical centre; compact logos retain
-        // the existing maximum height within the same left-side space.
-        constexpr float max_width = kWidth * .5f, desired_height = 486, center_y = 540;
+        // Keep every launch logo within the same left-aligned, aspect-correct box.
+        constexpr float max_width = kWidth * .25f, desired_height = 243, center_y = 540;
         const float scale = std::min(max_width / width, desired_height / height);
         const float shown_height = height * scale;
         c.list.image(image, {kLeft, center_y - shown_height * .5f, width * scale, shown_height},
@@ -1145,6 +1194,7 @@ struct HomeUi::Impl {
         settings.style.highlight.color = theme.accent;
         streams.style.highlight.color = theme.accent;
         downloads.style.highlight.color = theme.accent;
+        directories.style.highlight.color = theme.accent;
         choices.style.highlight.color = audio.style.highlight.color = subtitles.style.highlight.color = theme.accent;
         component_theme(nav, reduced);
         component_theme(search, reduced);
@@ -1157,6 +1207,10 @@ struct HomeUi::Impl {
         component_theme(episodes, reduced);
         component_theme(streams, reduced);
         component_theme(downloads, reduced);
+        component_theme(directories, reduced);
+        component_theme(directory_path, reduced);
+        component_theme(directory_spinner, reduced);
+        component_theme(directory_move, reduced);
         component_theme(choices, reduced);
         component_theme(audio, reduced);
         component_theme(subtitles, reduced);
@@ -1178,6 +1232,10 @@ struct HomeUi::Impl {
         component_theme(source_info, reduced);
         component_theme(source_text, reduced);
         component_theme(dialog, reduced);
+        component_theme(directory_notice, reduced);
+        component_theme(next_play, reduced);
+        component_theme(next_ignore, reduced);
+        component_theme(next_countdown, reduced);
         component_theme(loader, reduced);
         component_theme(toasts, reduced);
         for (auto& item : shelves) component_theme(item, reduced);
@@ -1558,7 +1616,7 @@ struct HomeUi::Impl {
     }
 
     bool modal(const App& app) const {
-        return app.dd_visible || app.login_visible || app.input_visible_ || app.launch_visible || app.watching() ||
+        return app.download_directory_notice || app.directory_picker_visible || app.dd_visible || app.login_visible || app.input_visible_ || app.launch_visible || app.watching() ||
                source_info.is_open();
     }
     void sync_settings(const App& app) {
@@ -1601,6 +1659,33 @@ struct HomeUi::Impl {
         settings.set_active(app.zone == "content" && !modal(app));
         settings.style.highlight.kind = app.zone == "content" && !modal(app)
                                       ? ui::HighlightKind::ring : ui::HighlightKind::none;
+    }
+
+    void sync_directories(const App& app) {
+        std::vector<ui::ListItem> rows;
+        for (const auto& entry : app.directory_picker_entries) {
+            ui::ListItem item;
+            item.title = entry == ".." ? tr("Cartella superiore", "Parent folder") : entry;
+            item.tag = entry == ".." ? 1 : 0;
+            item.chevron = true;
+            rows.push_back(std::move(item));
+        }
+        sync_list(directories, directories_stamp, std::move(rows));
+        const bool changed = directory_path_stamp != app.directory_picker_path;
+        directories.set_focus(app.directory_picker_sel, changed);
+        directories.set_active(!app.directory_picker_loading && !app.directory_picker_committing);
+        if (changed) {
+            directory_path_stamp = app.directory_picker_path;
+            std::vector<std::string> parts{tr("PS5", "PS5")};
+            for (const auto& part : split(app.directory_picker_path, '/')) if (!part.empty()) parts.push_back(part);
+            directory_path.set_path(parts, !app.ui_reduced_motion);
+            directories.enter();
+        }
+        directory_spinner.set_spinning(app.directory_picker_loading || app.directory_picker_committing, false);
+        directory_move.style.mode = app.directory_move_total > 0
+            ? ui::ProgressMode::determinate : ui::ProgressMode::indeterminate;
+        directory_move.set_value(app.directory_move_total > 0 ? std::clamp(
+            float(double(app.directory_move_done) / app.directory_move_total), 0.0f, 1.0f) : 0.0f);
     }
 
     void sync_detail(const App& app) {
@@ -1666,6 +1751,24 @@ struct HomeUi::Impl {
     }
 
     void sync_overlays(const App& app) {
+        next_play.label = tr("Guarda ora", "Watch now");
+        next_ignore.label = tr("Ignora", "Ignore");
+        next_play.set_active(app.next_episode_visible && app.next_episode_sel == 0);
+        next_ignore.set_active(app.next_episode_visible && app.next_episode_sel == 1);
+        if (app.next_episode_visible)
+            next_countdown.set_value(std::clamp(float(app.next_episode_seconds) /
+                std::max(5, app.settings().next_episode_delay_seconds), 0.0f, 1.0f), next_enter == 0);
+        if (app.download_directory_notice && !directory_notice.is_open()) {
+            ui::DialogContent content;
+            content.icon = ui::StatusKind::info;
+            content.title = tr("Cartella dei download", "Download folder");
+            content.body = tr("Scegli una cartella dei download nelle Impostazioni.",
+                              "Choose a download folder in Settings.");
+            content.buttons = {{"OK", ui::ButtonKind::primary}};
+            directory_notice.open(std::move(content), pending);
+        } else if (!app.download_directory_notice && directory_notice.is_open()) {
+            directory_notice.close(pending);
+        }
         if (source_info.is_open() && (app.view != "detail" || app.watching() || app.launch_visible)) source_info.dismiss();
         if (source_info.is_open()) place(source_text, source_info.content_rect());
         if (app.dd_visible) {
@@ -1858,6 +1961,7 @@ struct HomeUi::Impl {
             addon_grid.set_active(app.zone == "content" && !modal(app));
         }
         if (app.view == "settings") sync_settings(app);
+        if (app.directory_picker_visible) sync_directories(app);
         if (app.view == "detail") sync_detail(app);
         if (app.view == "downloads") sync_downloads(app, dt);
 
@@ -1961,8 +2065,11 @@ struct HomeUi::Impl {
         row_scroll.update(dt, omega);
         page_enter.update(dt, omega);
         watch_alpha.update(dt, 14);
+        next_enter = app.next_episode_visible ? std::min(1.0f, next_enter + dt / (app.ui_reduced_motion ? .08f : .22f)) : 0;
+        next_play.update(dt); next_ignore.update(dt); next_countdown.update(dt);
         nav.update(dt); search.update(dt); filters.update(dt);
         grid.update(dt); addon_grid.update(dt); settings.update(dt); downloads.update(dt);
+        directories.update(dt); directory_path.update(dt); directory_spinner.update(dt); directory_move.update(dt);
         season.update(dt); sources.update(dt); episodes.update(dt); streams.update(dt);
         choices.update(dt); audio.update(dt); subtitles.update(dt);
         track_tabs.update(dt); subtitle_delay.update(dt); media.update(dt);
@@ -1970,7 +2077,7 @@ struct HomeUi::Impl {
         playback_spinner.update(dt); empty.update(dt);
         dropdown.update(dt); login_retry.update(dt);
         keyboard_sheet.update(dt); keyboard.update(dt); input.update(dt);
-        tracks.update(dt); dialog.update(dt); loader.update(dt);
+        tracks.update(dt); dialog.update(dt); directory_notice.update(dt); loader.update(dt);
         source_info.update(dt); source_text.update(dt);
         toasts.update(dt, pending);
         for (auto& shelf : shelves) shelf.update(dt);
@@ -1991,6 +2098,55 @@ struct HomeUi::Impl {
             const auto event = login_retry.handle(input_frame, feedback);
             if (event == Event::activated) app.on_button(Btn::Cross);
             if (input_frame.is_pressed(Action::back)) app.on_button(Btn::Circle);
+            return;
+        }
+
+        if (app.download_directory_notice) {
+            sync_overlays(app);
+            const auto event = directory_notice.handle(input_frame, feedback);
+            if (event == Event::activated || event == Event::cancelled) {
+                app.download_directory_notice = false;
+                directory_notice.close(feedback);
+            }
+            return;
+        }
+
+        if (app.next_episode_visible) {
+            sync_overlays(app);
+            if (input_frame.nav == Direction::left || input_frame.nav == Direction::right) {
+                app.on_button(direction_button(input_frame.nav));
+                feedback.play(hui::audio::Cue::focus);
+            } else if (input_frame.is_pressed(Action::back)) {
+                app.on_button(Btn::Circle);
+                feedback.play(hui::audio::Cue::back);
+            } else {
+                auto& selected = app.next_episode_sel == 1 ? next_ignore : next_play;
+                if (selected.handle(input_frame, feedback) == Event::activated) app.on_button(Btn::Cross);
+            }
+            return;
+        }
+
+        if (app.directory_picker_visible) {
+            if (app.directory_picker_committing) return;
+            sync_directories(app);
+            if (!app.directory_picker_loading && !app.directory_picker_committing) {
+                // The component owns focus animation; the App owns directory
+                // navigation, asynchronous I/O and the selected destination.
+                InputFrame list_input = input_frame;
+                list_input.pressed &= hui::action_bit(Action::confirm);
+                const auto event = directories.handle(list_input, feedback);
+                if (event == Event::moved) app.directory_picker_sel = directories.focus();
+                InputFrame actions = input_frame;
+                actions.nav = input_frame.nav == Direction::left ? Direction::left : Direction::none;
+                forward_input(app, actions);
+            } else forward_input(app, input_frame);
+            if (feedback.cues.size() == before) {
+                if (input_frame.is_pressed(Action::back)) feedback.play(hui::audio::Cue::back);
+                else if (input_frame.is_pressed(Action::confirm) || input_frame.is_pressed(Action::north))
+                    feedback.play(hui::audio::Cue::select);
+                else if (input_frame.is_pressed(Action::page_prev) || input_frame.is_pressed(Action::page_next))
+                    feedback.play(hui::audio::Cue::focus);
+            }
             return;
         }
 
@@ -2158,7 +2314,9 @@ struct HomeUi::Impl {
             c.list.circle(120, 95, 23, theme.primary);
             c.list.triangle({112, 82, 20, 26}, Color::rgb(0xffffff), 0, kPi * .5f);
         }
-        if (app.view == "addons")
+        if (app.directory_picker_visible)
+            text(c, c.fonts.semibold, tr("Impostazioni / Download", "Settings / Downloads"), 196, 105, 26, theme.text, 1040);
+        else if (app.view == "addons")
             text(c, c.fonts.semibold, tr("Impostazioni / Add-on", "Settings / Add-ons"), 196, 105, 26, theme.text, 1040);
         else if (app.view != "detail") nav.draw(c);
         if (app.view == "search") search.draw(c);
@@ -2331,7 +2489,7 @@ struct HomeUi::Impl {
                 : row.id == "subtitle_font" ? 16 : subtitle ? 7
                 : row.id.find("language") != std::string::npos ? 15
                 : row.id == "seek_seconds" || row.id == "shoulder_seek_seconds" ? 17
-                : row.id == "server_url" ? 11 : row.id == "builtin_torrents" || row.id == "torrent_speed_profile" ? 9
+                : row.id == "server_url" ? 11 : row.id == "builtin_torrents" || row.id == "torrent_speed_profile" || row.id == "download_directory" ? 9
                 : row.id.find("display") != std::string::npos || row.id.find("resolution") != std::string::npos ? 19
                 : row.id.find("addon") != std::string::npos ? 3 : 4;
             const Rect symbol_box{help.x + 30, help.y + 32, 76, 76};
@@ -2355,6 +2513,74 @@ struct HomeUi::Impl {
             }
         }
         settings.draw(c);
+    }
+
+    void paint_directories(Canvas& c, const App& app) const {
+        paint_page_title(c, tr("Cartella dei download", "Download folder"),
+            tr("Scegli dove conservare film ed episodi.", "Choose where to store movies and episodes."));
+        ui::Painter paint(c.list, c.fonts, theme, c.glass);
+        const Rect list_panel{kLeft, 302, 844, 652};
+        const Rect detail_panel{990, 302, 834, 652};
+        paint.panel(list_panel);
+        paint.panel(detail_panel);
+        text(c, c.fonts.semibold, tr("Cartelle", "Folders"), 122, 351, 25, theme.text, 590);
+        text(c, c.fonts.regular, std::to_string(app.directory_picker_entries.size()),
+             898, 351, 22, theme.text_muted, 120, gfx::Align::right);
+        if (app.directory_picker_entries.empty()) {
+            ui::paragraph(c.list, c.fonts.regular,
+                app.directory_picker_loading ? tr("Lettura delle cartelle…", "Reading folders…")
+                    : tr("Questa cartella non contiene sottocartelle.", "This folder has no subfolders."),
+                156, 569, 27, 724, 37, theme.text_muted, 3);
+        } else directories.draw(c);
+        directory_path.draw(c);
+        text(c, c.fonts.semibold, tr("Cartella visualizzata", "Current folder"), 1026, 444, 24, theme.accent, 756);
+        ui::paragraph(c.list, c.fonts.regular, app.directory_picker_path,
+            1026, 487, 27, 756, 36, theme.text, 3);
+        c.list.rounded_rect({1026, 597, 756, 1}, 0, theme.outline);
+        if (app.directory_picker_committing) {
+            text(c, c.fonts.semibold, app.directory_picker_status,
+                1026, 641, 25, theme.accent, 756);
+            text(c, c.fonts.regular, app.directory_move_title,
+                1026, 689, 25, theme.text, 756);
+            const auto size = [](int64_t bytes) {
+                char value[64];
+                if (bytes >= (1ll << 30)) std::snprintf(value, sizeof(value), "%.2f GiB", double(bytes) / (1ll << 30));
+                else std::snprintf(value, sizeof(value), "%.1f MiB", double(std::max<int64_t>(0, bytes)) / (1ll << 20));
+                return std::string(value);
+            };
+            if (app.directory_move_total >= 0) {
+                const auto bytes = size(app.directory_move_done) + " / " + size(app.directory_move_total);
+                text(c, c.fonts.regular, bytes, 1026, 732, 22, theme.text_muted, 620);
+                const auto percentage = app.directory_move_total > 0 ? std::clamp(
+                    int(100.0 * double(app.directory_move_done) / app.directory_move_total), 0, 100) : 0;
+                text(c, c.fonts.semibold, std::to_string(percentage) + "%", 1782, 732, 22,
+                    theme.text, 120, gfx::Align::right);
+            }
+            directory_move.draw(c);
+            if (app.directory_move_items_total > 0) {
+                const auto items = std::to_string(app.directory_move_items_done) + " / " +
+                    std::to_string(app.directory_move_items_total) + tr(" download spostati", " downloads moved");
+                text(c, c.fonts.regular, items, 1026, 807, 24, theme.text_muted, 756);
+            }
+            ui::paragraph(c.list, c.fonts.regular,
+                tr("Al termine, i download saranno disponibili nella nuova cartella.",
+                   "Your downloads will be available in the new folder when the move finishes."),
+                1026, 863, 24, 756, 33, theme.text_muted, 2);
+            directory_spinner.draw(c);
+            return;
+        }
+        text(c, c.fonts.semibold, tr("Destinazione in uso", "Saved destination"), 1026, 641, 22, theme.text_muted, 756);
+        ui::paragraph(c.list, c.fonts.regular, app.settings().download_directory.empty()
+                ? tr("Non selezionata", "Not selected") : app.settings().download_directory,
+            1026, 681, 24, 756, 32, theme.text, 2);
+        c.list.rounded_rect({1026, 754, 756, 1}, 0, theme.outline);
+        const auto message = app.directory_picker_status.empty()
+            ? tr("Quando confermi, i download vengono spostati nella cartella scelta. Le unità collegate sono disponibili in /mnt.",
+                 "Confirming moves your downloads to the selected folder. Connected drives are available under /mnt.")
+            : app.directory_picker_status.c_str();
+        ui::paragraph(c.list, c.fonts.regular, message, 1026, 801, 25, 756, 34,
+            app.directory_picker_error ? theme.danger : theme.text_muted, 3);
+        directory_spinner.draw(c);
     }
     void paint_detail(Canvas& c, const App& app) const {
         if (texture(app.d_logo)) picture(c, app.d_logo, {kLeft, 160, 560, 120}, 0);
@@ -2563,7 +2789,7 @@ struct HomeUi::Impl {
         paint_caption(c, app, sub_text, 960, bottom, 1600);
     }
     void paint_playback_bar(Canvas& c, const App& app) const {
-        if (watch_alpha.value <= .001f || app.menu_visible || app.launch_visible) return;
+        if (watch_alpha.value <= .001f || app.menu_visible || app.launch_visible || app.next_episode_visible) return;
         c.list.push_opacity(watch_alpha.value);
         // The transport and its controller legend are one surface. Their
         // common opacity also keeps both parts together when Circle hides it.
@@ -2614,6 +2840,7 @@ struct HomeUi::Impl {
         c.list.pop_opacity();
     }
     void paint_player(Canvas& c, const App& app) const {
+        if (app.next_episode_visible) return;
         paint_subtitles(c, app);
         if (app.w_buffering && !app.launch_visible && !app.menu_visible) {
             playback_spinner.draw(c);
@@ -2631,6 +2858,30 @@ struct HomeUi::Impl {
                           22, 1142, 30, Color::rgb(0xf6f3fc), 3);
         }
     }
+    void paint_next_episode(Canvas& c, const App& app) const {
+        if (!app.next_episode_visible) return;
+        const float enter = hui::tween::smoothstep(next_enter);
+        c.list.push_opacity(enter);
+        c.list.push_transform(1, 0, 0, 0, app.ui_reduced_motion ? 0 : 18 * (1 - enter));
+        ui::draw_overlay_panel(c, theme, {962, 590, 862, 368}, true, .66f, 24);
+        text(c, c.fonts.semibold, tr("Prossimo episodio", "Up next"), 994, 624, 23, theme.accent, 798);
+        constexpr Rect art{994, 646, 260, 146};
+        if (texture(app.next_episode_thumb)) picture(c, app.next_episode_thumb, art, 12);
+        else {
+            c.list.gradient_rect(art, 12, theme.surface_high, theme.surface);
+            icon(c, {art.cx() - 22, art.cy() - 22, 44, 44}, 18, theme.accent);
+        }
+        text(c, c.fonts.regular, app.next_episode_label, 1284, 665, 23, theme.text_muted, 508);
+        ui::paragraph(c.list, c.fonts.semibold, app.next_episode_title, 1284, 704, 29, 508, 36, theme.text, 2);
+        const auto countdown = std::string(tr("Inizia tra ", "Starts in ")) +
+            std::to_string(std::max(0, app.next_episode_seconds)) + " s";
+        text(c, c.fonts.regular, countdown, 1284, 791, 23, theme.text_muted, 508);
+        next_play.draw(c);
+        next_ignore.draw(c);
+        next_countdown.draw(c);
+        c.list.pop_transform();
+        c.list.pop_opacity();
+    }
     void paint_footer(Canvas& c, const App& app) const {
         const auto cross = ui::Button::cross, circle = ui::Button::circle;
         const auto square = ui::Button::square, triangle = ui::Button::triangle;
@@ -2638,6 +2889,19 @@ struct HomeUi::Impl {
         if (app.login_visible) {
             hint_row(c, theme, {{cross, tr("Richiedi nuovo link", "Request a new link")},
                                 {circle, app.settings().auth_key.empty() ? tr("Esci", "Exit") : tr("Indietro", "Back")}});
+        } else if (app.download_directory_notice) {
+            hint_row(c, theme, {{cross, "OK"}});
+        } else if (app.next_episode_visible) {
+            hint_row(c, theme, {{dpad, tr("Scegli", "Choose")}, {cross, tr("Seleziona", "Select")},
+                                {circle, tr("Ignora", "Ignore")}}, kFooter, 96, kWidth, true);
+        } else if (app.directory_picker_visible) {
+            if (!app.directory_picker_committing)
+                hint_row(c, theme, {{cross, tr("Apri", "Open")},
+                                    {triangle, tr("Usa questa cartella", "Use this folder")},
+                                    {square, tr("Crea cartella", "Create folder")},
+                                    {ui::Button::options, tr("Aggiorna", "Refresh")},
+                                    {circle, tr("Indietro", "Back")},
+                                    {ui::Button::l1, tr("Pagina", "Page"), ui::Button::r1}});
         } else if (source_info.is_open()) {
             hint_row(c, theme, {{dpad, tr("Scorri", "Scroll")}, {circle, tr("Chiudi", "Close")}});
         } else if (app.input_visible_) {
@@ -2685,7 +2949,8 @@ struct HomeUi::Impl {
                                     {ui::Button::l1, tr("Sezioni", "Sections"), ui::Button::r1}});
             else {
                 const auto& item = app.download_rows[static_cast<std::size_t>(bounded(app.download_sel, app.download_rows.size()))];
-                const char* action = item.complete ? tr("Riproduci offline", "Play offline")
+                const char* action = item.recovery_only ? tr("Informazioni", "Details")
+                    : item.complete ? tr("Riproduci offline", "Play offline")
                     : item.active ? tr("Pausa", "Pause") : item.failed ? tr("Riprova", "Retry")
                     : item.paused ? tr("Riprendi", "Resume") : tr("Pausa", "Pause");
                 if (item.playable_while_downloading)
@@ -2695,7 +2960,7 @@ struct HomeUi::Impl {
                                         {ui::Button::l1, tr("Sezioni", "Sections"), ui::Button::r1}});
                 else
                     hint_row(c, theme, {{cross, action},
-                                        {square, item.complete ? tr("Elimina", "Delete") : tr("Annulla download", "Cancel download")},
+                                        {square, item.complete || item.recovery_only ? tr("Elimina", "Delete") : tr("Annulla download", "Cancel download")},
                                         {triangle, tr("Cerca", "Search")},
                                         {ui::Button::l1, tr("Sezioni", "Sections"), ui::Button::r1}});
             }
@@ -2729,6 +2994,12 @@ struct HomeUi::Impl {
     }
     void draw_base(const App& app, Canvas& c) const {
         if (app.login_visible) { paint_login(c, app); return; }
+        if (app.directory_picker_visible) {
+            paint_background(c, app);
+            paint_directories(c, app);
+            paint_header(c, app);
+            return;
+        }
         if (app.watching()) paint_player(c, app);
         else {
             paint_background(c, app);
@@ -2762,6 +3033,8 @@ struct HomeUi::Impl {
         if (keyboard_sheet.visible()) keyboard_sheet.draw(c);
         if (dialog.visible()) dialog.draw(c);
         if (loader.visible()) paint_launch(c, app);
+        paint_next_episode(c, app);
+        if (directory_notice.visible()) directory_notice.draw(c);
         toasts.draw(c);
         paint_footer(c, app);
     }
@@ -2796,8 +3069,9 @@ bool HomeUi::wants_glass() const {
     if (impl_->model && impl_->model->login_visible) return false;
     return (impl_->model && impl_->model->watching() && impl_->watch_alpha.value > .001f &&
             !impl_->model->menu_visible && !impl_->model->launch_visible) ||
+           (impl_->model && impl_->model->next_episode_visible) ||
            impl_->dropdown.visible() || impl_->tracks.visible() ||
-           impl_->keyboard_sheet.visible() || impl_->dialog.visible() || impl_->source_info.visible();
+           impl_->keyboard_sheet.visible() || impl_->dialog.visible() || impl_->directory_notice.visible() || impl_->source_info.visible();
 }
 void HomeUi::snap(const App& app) {
     impl_->update(app, 0);

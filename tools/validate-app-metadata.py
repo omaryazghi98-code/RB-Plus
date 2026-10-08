@@ -21,8 +21,8 @@ if (data.get('applicationCategoryType'), data.get('contentBadgeType')) != (65536
 if 'gameIntent' in data:
     raise SystemExit('A media-app manifest must not declare a gameIntent.')
 size = data.get('downloadDataSize')
-if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-    raise SystemExit('Invalid application storage size.')
+if isinstance(size, bool) or not isinstance(size, int) or size != 0:
+    raise SystemExit('downloadDataSize must be 0: Stremio Plus stores data on demand outside /download0.')
 localized = data.get('localizedParameters', {})
 default = localized.get('defaultLanguage', '')
 if localized.get(default, {}).get('titleName') != 'Stremio Plus':

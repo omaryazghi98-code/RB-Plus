@@ -40,11 +40,21 @@ std::string download_error_text(const std::string& error, bool italian) {
     if (!italian || error.empty()) return error;
     using Pair = std::pair<std::string_view, std::string_view>;
     static constexpr Pair translations[] = {
+        {"Download relocation is in progress or requires retry.",
+         "È in corso uno spostamento dei download o deve essere ripreso dalla scelta della cartella."},
+        {"Download storage is unavailable during relocation or shutdown.",
+         "I download non sono disponibili durante lo spostamento dei file o la chiusura dell'app."},
+        {"A download relocation is pending. Retry the same destination to finish moving the saved files.",
+         "Lo spostamento dei download è da completare. Riapri la scelta della cartella e conferma la stessa destinazione per riprenderlo."},
         {"Download failed. You can retry.", "Riprova il download."},
         {"Download storage is not available.", "La cartella dei download non è disponibile."},
         {"The download folder is not available.", "La cartella dei download non è disponibile."},
         {"The download storage path is invalid", "La cartella dei download non è valida."},
         {"Insufficient storage for this download", "Spazio insufficiente per completare il download."},
+        {"The download destination could not allocate more storage", "La destinazione del download non riesce ad allocare altro spazio."},
+        {"The download folder does not allow writing", "La cartella dei download non consente la scrittura."},
+        {"Download metadata is missing or damaged. You can delete the saved files.", "Le informazioni del download sono mancanti o danneggiate. Puoi eliminare i file salvati."},
+        {"The video is saved, but its download metadata could not be updated.", "Il video è salvato, ma non è stato possibile aggiornare le informazioni del download."},
         {"Could not write the download to storage", "Impossibile scrivere il download sulla memoria della PS5."},
         {"Could not start the PS5 download writer", "Impossibile avviare il processo di scrittura dei download PS5."},
         {"The PS5 download writer stopped before confirming the data", "Il processo di scrittura PS5 si è interrotto prima di confermare i dati."},

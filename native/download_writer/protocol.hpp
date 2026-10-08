@@ -9,12 +9,14 @@
 namespace download_writer::wire {
 
 inline constexpr std::uint32_t magic = 0x31574453; // SDW1
-inline constexpr std::uint16_t version = 2;
+inline constexpr std::uint16_t version = 3;
 inline constexpr std::size_t max_block = 4u << 20;
 inline constexpr std::size_t max_checkpoint = 8u << 10;
 inline constexpr int client_timeout_us = 30'000'000;
 inline constexpr int helper_idle_seconds = 180;
 inline constexpr char root[] = "/data/Stremio/downloads";
+inline constexpr std::size_t max_directory_length = 1023;
+inline constexpr std::size_t max_begin = 34 + max_directory_length;
 inline constexpr char title_id[] = "PPSA74126";
 
 enum class Operation : std::uint32_t {
@@ -50,7 +52,8 @@ constexpr const char* stage_name(Stage stage) noexcept {
 }
 
 // Fixed-width little-endian frames; a request has no timings or error value.
-// Begin carries exactly the 33-byte job ID. Its offset is a validated candidate
+// Begin carries a 33-byte job ID, a NUL separator and its exact parent directory.
+// Its offset is a validated candidate
 // checkpoint; the helper returns zero if that prefix is absent from the file.
 // The first command after Begin must commit an initial Checkpoint.
 // Write carries a complete block and advances the offset only after writing it.
@@ -82,6 +85,25 @@ constexpr bool job_id(std::string_view value) noexcept {
     return true;
 }
 
+constexpr bool directory_path(std::string_view path) noexcept {
+    if (path.size() < 2 || path.size() > max_directory_length || path.front() != '/' || path.back() == '/')
+        return false;
+    for (std::size_t at = 1; at < path.size();) {
+        const auto end = path.find('/', at);
+        const auto part = path.substr(at, end == path.npos ? path.size() - at : end - at);
+        if (part.empty() || part.size() > 255 || part == "." || part == "..") return false;
+        for (const unsigned char c : part) if (c < 32 || c == 127 || c == '\\') return false;
+        if (end == path.npos) break;
+        at = end + 1;
+    }
+    return true;
+}
+
+constexpr bool download_directory(std::string_view path) noexcept {
+    return directory_path(path) &&
+        (path == "/data" || path.starts_with("/data/") || path.starts_with("/mnt/"));
+}
+
 constexpr bool envelope(const Message& value) noexcept {
     return value.signature == magic && value.protocol == version &&
            value.header_bytes == sizeof(Message) &&
@@ -93,7 +115,8 @@ constexpr bool envelope(const Message& value) noexcept {
 constexpr bool request(const Message& value) noexcept {
     if (!envelope(value) || value.error || value.stage != Stage::none || value.media_us || value.state_us) return false;
     switch (value.operation) {
-    case Operation::begin: return value.sequence == 1 && value.payload_bytes == 33;
+    case Operation::begin:
+        return value.sequence == 1 && value.payload_bytes >= 36 && value.payload_bytes <= max_begin;
     case Operation::write:
         return value.payload_bytes > 0 && value.payload_bytes <= max_block &&
                value.payload_bytes <= std::uint64_t(value.total - value.offset);

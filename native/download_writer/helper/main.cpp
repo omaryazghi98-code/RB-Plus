@@ -196,8 +196,9 @@ struct Session {
         reply.stage = wire::Stage::media_sync;
         const auto media_at = Clock::now();
         const int synced = ::fsync(media.fd);
+        const int sync_error = synced == 0 ? 0 : failure();
         reply.media_us = elapsed(media_at);
-        if (synced != 0) return failure();
+        if (sync_error != 0) return sync_error;
         const auto state_at = Clock::now();
         const int result = save_state(bytes, reply.stage);
         reply.state_us = elapsed(state_at);
@@ -255,7 +256,7 @@ bool timeouts() {
            ::setsockopt(STDOUT_FILENO, SOL_SOCKET, SO_SNDTIMEO, &send, sizeof(send)) == 0;
 }
 
-int run(std::string_view root) {
+int run(std::string_view test_root = {}) {
     Session session;
     std::uint32_t pid = 0, sequence = 1;
     for (;;) {
@@ -272,10 +273,22 @@ int run(std::string_view root) {
             reply.error = EINVAL;
             reply.stage = wire::Stage::protocol;
         } else if (request.operation == wire::Operation::begin) {
-            std::string job(request.payload_bytes, '\0');
-            if (!read_exact(job.data(), job.size())) return 1;
+            std::string payload(request.payload_bytes, '\0');
+            if (!read_exact(payload.data(), payload.size())) return 1;
+            const std::string job = payload.substr(0, 33);
+            std::string directory = payload.substr(34);
             reply.stage = wire::Stage::begin;
-            reply.error = session.begin(request, job, root);
+            bool allowed = payload[33] == '\0' && wire::directory_path(directory);
+#ifdef STREMIO_DOWNLOAD_WRITER_TEST
+            if (directory == wire::root) directory = test_root;
+            else allowed = allowed && (directory == test_root ||
+                (directory.starts_with(test_root) && directory.size() > test_root.size() &&
+                 directory[test_root.size()] == '/'));
+#else
+            (void)test_root;
+            allowed = allowed && wire::download_directory(directory);
+#endif
+            reply.error = allowed ? session.begin(request, job, directory) : EACCES;
             pid = request.pid;
             reply.offset = session.written;
         } else if (request.operation == wire::Operation::write) {
@@ -315,6 +328,6 @@ int main(int argc, char** argv) {
 #else
     (void)argc;
     (void)argv;
-    return run(wire::root);
+    return run();
 #endif
 }

@@ -8,6 +8,10 @@
 #include <cstdio>
 
 namespace {
+std::string pending_relocation_text(bool italian) {
+    return download_error_text(
+        "A download relocation is pending. Retry the same destination to finish moving the saved files.", italian);
+}
 std::string download_bytes(int64_t bytes) {
     if (bytes < 0) return {};
     char value[64];
@@ -18,6 +22,19 @@ std::string download_bytes(int64_t bytes) {
 }
 
 void App::download_selected_stream(const Stream& stream) {
+    if (download_relocation_active()) {
+        show_toast(settings_.ui_language == "it" ? "Spostamento dei download in corso." : "Moving downloads. Please wait.");
+        return;
+    }
+    if (downloads_.relocation_status().pending) {
+        show_toast(pending_relocation_text(settings_.ui_language == "it"), 7);
+        return;
+    }
+    if (downloads_.download_directory().empty()) {
+        download_directory_notice = true;
+        dirty_all();
+        return;
+    }
     const bool it = settings_.ui_language == "it";
     if (!stream.playable()) {
         show_toast(it ? "Questa sorgente non può essere scaricata." : "This source cannot be downloaded.");
@@ -85,6 +102,7 @@ void App::download_selected_stream(const Stream& stream) {
 }
 
 void App::refresh_download_artwork() {
+    if (download_relocation_active()) return;
     if (download_art_account_ != account_generation_) {
         if (download_art_cancel_) download_art_cancel_->store(true);
         download_art_cancel_ = std::make_shared<std::atomic<bool>>(false);
@@ -100,10 +118,11 @@ void App::refresh_download_artwork() {
         else ++it;
     }
     std::set<std::string> requested_urls;
+    if (!downloads_.storage_available()) return;
     for (const auto& entry : entries) {
         // The worker validates and publishes private artwork paths. Polling
         // every row with stat() here can stall navigation behind media writes.
-        if (!entry.poster_path.empty()) continue;
+        if (entry.recovery_only || !entry.poster_path.empty()) continue;
         std::string poster = entry.poster_url;
         if (poster.empty()) {
             // Older manifests had only a temporary cache path. Reuse already
@@ -151,7 +170,7 @@ void App::refresh_download_artwork() {
         const auto accept = [this, poster, account, cancel = download_art_cancel_](const std::string& path) {
             if (path.empty() || account != account_generation_ || cancel != download_art_cancel_ || cancel->load()) return;
             for (const auto& item : downloads_.snapshot())
-                if (item.poster_url == poster) downloads_.update_poster(item.id, path);
+                if (!item.recovery_only && item.poster_url == poster) downloads_.update_poster(item.id, path);
             images_dirty_ = true;
             if (view == "downloads") downloads_refresh();
         };
@@ -169,10 +188,24 @@ void App::downloads_refresh() {
     download_revision_ = downloads_.revision();
     const auto entries = downloads_.snapshot();
     download_rows.clear();
-    size_t complete = 0, pending = 0;
+    size_t complete = 0, pending = 0, recovered = 0;
     for (const auto& entry : entries) {
         UiDownload row;
         row.id = entry.id; row.title = entry.title; row.subtitle = entry.subtitle;
+        row.recovery_only = entry.recovery_only;
+        if (entry.recovery_only) {
+            row.title = (it ? "Download da verificare · " : "Unrecognized download · ") + entry.id.substr(1, 8);
+            row.subtitle = it ? "I file sono ancora presenti sulla PS5." : "The files are still on your PS5.";
+            row.status = entry.error.empty() || entry.error == "Download metadata is missing or damaged. You can delete the saved files."
+                ? (it ? "Informazioni del download mancanti o illeggibili" : "Download information is missing or unreadable")
+                : download_error_text(entry.error, it);
+            row.size = (it ? "Spazio occupato: " : "Storage used: ") +
+                (entry.disk_bytes < 0 ? (it ? "da verificare" : "unknown") : download_bytes(entry.disk_bytes));
+            row.failed = true;
+            ++recovered;
+            download_rows.push_back(std::move(row));
+            continue;
+        }
         row.image = entry.poster_path.empty() ? entry.background_path : entry.poster_path;
         row.progress = std::isfinite(entry.progress) ? float(entry.progress) : -1;
         row.complete = entry.state == DownloadState::Complete;
@@ -203,14 +236,27 @@ void App::downloads_refresh() {
     }
     download_sel = std::clamp(download_sel, 0, std::max(0, int(download_rows.size()) - 1));
     for (size_t i = 0; i < download_rows.size(); ++i) if (download_rows[i].id == selected) { download_sel = int(i); break; }
-    if (entries.empty()) download_status = it ? "I video che scarichi appariranno qui." : "Downloaded videos will appear here.";
+    if (download_relocation_active())
+        download_status = it ? "Spostamento dei download in corso…" : "Moving downloads…";
+    else if (downloads_.relocation_status().pending)
+        download_status = it ? "Spostamento da completare · Riapri la cartella dei download nelle impostazioni."
+                             : "Move unfinished · Reopen the download folder setting to continue.";
+    else if (!downloads_.storage_readable())
+        download_status = it ? "Impossibile leggere la cartella dei download." : "The download folder could not be read.";
+    else if (!downloads_.storage_available())
+        download_status = entries.empty()
+            ? (it ? "Impossibile scrivere nella cartella dei download." : "The download folder is not writable.")
+            : (it ? "Download sospesi · I file presenti restano accessibili." : "Downloads suspended · Existing files remain accessible.");
+    else if (entries.empty()) download_status = it ? "I video che scarichi appariranno qui." : "Downloaded videos will appear here.";
     else download_status = std::to_string(complete) + (it ? " disponibili offline" : " available offline") +
-        (pending ? " · " + std::to_string(pending) + (it ? " in coda o in download" : " queued or downloading") : "");
+        (pending ? " · " + std::to_string(pending) + (it ? " in coda o in download" : " queued or downloading") : "") +
+        (recovered ? " · " + std::to_string(recovered) + (it ? " da verificare" : " needing attention") : "");
     dirty_all();
 }
 
 void App::downloads_button(Btn button) {
     const bool it = settings_.ui_language == "it";
+    if (download_relocation_active()) return;
     if (button == Btn::Up && download_sel > 0) --download_sel;
     else if (button == Btn::Down && download_sel + 1 < int(download_rows.size())) ++download_sel;
     else if (button == Btn::Circle) { set_view("home"); return; }
@@ -219,6 +265,16 @@ void App::downloads_button(Btn button) {
         const auto id = download_rows[download_sel].id;
         const auto entry = downloads_.find(id);
         if (!entry) { downloads_refresh(); return; }
+        if (downloads_.relocation_status().pending &&
+            (button == Btn::Square || entry->state != DownloadState::Complete)) {
+            show_toast(pending_relocation_text(it), 7);
+            return;
+        }
+        if (entry->recovery_only && button != Btn::Square) {
+            show_toast(it ? "I file sono ancora presenti, ma le informazioni del download non sono leggibili. Puoi eliminarli con Quadrato." :
+                           "The files are still present, but their download information could not be read. Press Square to delete them.", 7);
+            return;
+        }
         if (button == Btn::Options) {
             play_download(id, entry->state != DownloadState::Complete);
             return;
@@ -228,11 +284,20 @@ void App::downloads_button(Btn button) {
             else downloads_.pause(id);
             downloads_refresh();
         } else if (button == Btn::Square) {
-            const auto title = entry->title + (entry->subtitle.empty() ? "" : " · " + entry->subtitle);
+            const auto title = entry->recovery_only ? download_rows[download_sel].title :
+                entry->title + (entry->subtitle.empty() ? "" : " · " + entry->subtitle);
             open_dropdown((it ? "Eliminare " : "Delete ") + title + "?",
                 {it ? "Annulla" : "Cancel", it ? "Elimina download e file" : "Delete download and files"}, 0,
                 [this, id](int selected) {
                     if (selected != 1) return;
+                    if (download_relocation_active()) {
+                        show_toast(settings_.ui_language == "it" ? "Spostamento dei download in corso." : "Moving downloads. Please wait.");
+                        return;
+                    }
+                    if (downloads_.relocation_status().pending) {
+                        show_toast(pending_relocation_text(settings_.ui_language == "it"), 7);
+                        return;
+                    }
                     std::string error;
                     if (!downloads_.remove(id, error)) {
                         dlog("Download removal failed: %s", error.c_str());
@@ -246,7 +311,15 @@ void App::downloads_button(Btn button) {
 }
 
 void App::play_download(const std::string& id, bool progressive) {
+    if (download_relocation_active()) {
+        show_toast(settings_.ui_language == "it" ? "Spostamento dei download in corso." : "Moving downloads. Please wait.");
+        return;
+    }
     const auto entry = downloads_.find(id);
+    if (downloads_.relocation_status().pending && (!entry || entry->state != DownloadState::Complete)) {
+        show_toast(pending_relocation_text(settings_.ui_language == "it"), 7);
+        return;
+    }
     if (entry && entry->state == DownloadState::Complete) progressive = false;
     double resume = 0;
     if (entry && !progressive) {
@@ -275,7 +348,20 @@ void App::play_download(const std::string& id, bool progressive) {
 }
 
 void App::start_download_playback(const std::string& id, bool progressive, double start) {
+    if (download_relocation_active()) {
+        show_toast(settings_.ui_language == "it" ? "Spostamento dei download in corso." : "Moving downloads. Please wait.");
+        return;
+    }
     const auto entry = downloads_.find(id);
+    if (downloads_.relocation_status().pending && (!entry || entry->state != DownloadState::Complete)) {
+        show_toast(pending_relocation_text(settings_.ui_language == "it"), 7);
+        return;
+    }
+    if (entry && entry->recovery_only) {
+        show_toast(settings_.ui_language == "it" ? "Le informazioni di questo download non sono leggibili." :
+                   "This download's information could not be read.", 4);
+        return;
+    }
     if (entry && entry->state == DownloadState::Complete) progressive = false;
     std::shared_ptr<GrowingFilePlayback> growing;
     std::string error;

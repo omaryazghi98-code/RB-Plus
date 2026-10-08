@@ -2,6 +2,7 @@
 // redirected into a real temporary filesystem, and inject native access limits.
 #include "ps5_storage.h"
 #include "filesystem/elevation.hpp"
+#include "download_writer/client.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -25,6 +26,8 @@ std::map<DIR*, std::string> directories;
 int failure_errno = EPERM, helper_calls = 0, checks = 0;
 bool granted = false, repair_on_grant = true, deny_until_grant = true;
 bool corrupt_read = false, short_io = false, interrupt_write = false;
+bool short_migration_io = false, interrupt_migration_write = false, late_target = false;
+std::string configured_writer;
 elevation::Status helper_status = elevation::Status::ok;
 
 void check(bool condition, const char* message) {
@@ -76,6 +79,7 @@ void reset() {
     helper_calls = 0; granted = false; repair_on_grant = deny_until_grant = true;
     helper_status = elevation::Status::ok;
     corrupt_read = short_io = interrupt_write = false;
+    short_migration_io = interrupt_migration_write = late_target = false;
     descriptors.clear();
     directories.clear();
 }
@@ -86,9 +90,19 @@ std::string boot_text() {
 }
 
 void check_no_probe() {
-    for (const auto& item : fs::directory_iterator(root + "/data/Stremio"))
-        check(item.path().filename().string().find(".storage-probe-") != 0,
-            "startup proof removes only its temporary files and directory");
+    for (const auto& item : fs::recursive_directory_iterator(root + "/data/Stremio")) {
+        const auto name = item.path().filename().string();
+        check(!name.starts_with(".storage-probe-") && !name.starts_with(".migration-"),
+            "startup removes its probe and migration temporary files");
+    }
+}
+std::string read_file(const std::string& path) {
+    std::ifstream input(root + path);
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+void legacy_settings() {
+    std::ofstream(root + "/download0/stremio/settings.json") << "{\"authKey\":\"fake-sensitive-token\"}";
 }
 } // namespace
 
@@ -142,6 +156,10 @@ int __wrap_fstat(int descriptor, struct stat* info) {
     return denied("fstat", descriptor_path(descriptor)) ? -1 : __real_fstat(descriptor, info);
 }
 int __wrap_fsync(int descriptor) {
+    if (late_target && descriptor_path(descriptor).find(".migration-") != std::string::npos) {
+        late_target = false;
+        std::ofstream(root + "/data/Stremio/appdata/settings.json") << "newer destination";
+    }
     return denied("fsync", descriptor_path(descriptor)) ? -1 : __real_fsync(descriptor);
 }
 ssize_t __wrap_write(int descriptor, const void* bytes, size_t length) {
@@ -150,11 +168,17 @@ ssize_t __wrap_write(int descriptor, const void* bytes, size_t length) {
         if (interrupt_write) { interrupt_write = false; errno = EINTR; return -1; }
         if (short_io) length = std::min(length, size_t(3));
     }
+    if (descriptor_path(descriptor).find(".migration-") != std::string::npos) {
+        if (interrupt_migration_write) { interrupt_migration_write = false; errno = EINTR; return -1; }
+        if (short_migration_io) length = std::min(length, size_t(3));
+    }
     return __real_write(descriptor, bytes, length);
 }
 ssize_t __wrap_read(int descriptor, void* bytes, size_t length) {
     if (denied("read", descriptor_path(descriptor))) return -1;
     if (short_io && is_probe(descriptor)) length = std::min(length, size_t(4));
+    if (short_migration_io && descriptor_path(descriptor).find("/download0/stremio/") != std::string::npos)
+        length = std::min(length, size_t(4));
     const auto count = __real_read(descriptor, bytes, length);
     if (corrupt_read && is_probe(descriptor) && count > 0) static_cast<char*>(bytes)[0] ^= 1;
     return count;
@@ -194,6 +218,8 @@ elevation::Status elevation::request(Capability capability, const char* path) no
     return helper_status;
 }
 
+void download_writer::configure_helper(std::string path) { configured_writer = std::move(path); }
+
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     root = argv[1];
@@ -206,7 +232,9 @@ int main(int argc, char** argv) {
     check(helper_calls == 1 && partial.helper_requested, "lstat EPERM requests helper despite writable logs");
     check(partial.filesystem_available && partial.logs_available, "verified post-grant storage becomes available");
     check(std::string(partial.app) == "/mnt/sandbox/PPSA74126_000/app0", "app mount re-resolves after root changes");
-    check(std::string(partial.data) == "/mnt/sandbox/PPSA74126_000/download0/stremio", "settings mount re-resolves after root changes");
+    check(partial.data_available && std::string(partial.data) == "/data/Stremio/appdata", "private appdata resolves outside the removed reservation after grant");
+    check(configured_writer == "/mnt/sandbox/PPSA74126_000/app0/download-writer.elf",
+        "download writer uses the resolved app mount after filesystem elevation");
     check(boot_text().find("before=\"lstat /data\" before_errno=" + std::to_string(EPERM)) != std::string::npos,
         "boot diagnostics preserve original denied operation and errno");
     check(boot_text().find("after=\"ready\" after_errno=0") != std::string::npos,
@@ -220,6 +248,35 @@ int main(int argc, char** argv) {
     check(existing.filesystem_available && !existing.helper_requested && helper_calls == 0,
         "complete existing access skips the helper");
     check(std::string(existing.app) == "/app0", "existing sandbox app mount stays selected");
+    check(ps5_prepare_storage().data_available && descriptors.size() == 1,
+        "pre-init storage retry retains only the current boot receipt descriptor");
+    check_no_probe();
+
+    reset();
+    fs::create_directory(root + "/data/Stremio/downloads");
+    fs::create_directory(root + "/data/Stremio/appdata");
+    check(::chmod((root + "/data/Stremio/appdata").c_str(), 0775) == 0, "set existing appdata permissions");
+    check(::chmod((root + "/data/Stremio").c_str(), 0777) == 0 &&
+          ::chmod((root + "/data/Stremio/downloads").c_str(), 0777) == 0,
+        "existing user permissions are configured for the startup regression");
+    check(ps5_prepare_storage().filesystem_available, "startup accepts existing user-writable folders");
+    struct stat mode_info{};
+    check(::lstat((root + "/data/Stremio").c_str(), &mode_info) == 0 &&
+          (mode_info.st_mode & 0777) == 0777,
+        "startup preserves the existing Stremio folder permissions");
+    check(::lstat((root + "/data/Stremio/downloads").c_str(), &mode_info) == 0 &&
+          (mode_info.st_mode & 0777) == 0777,
+        "startup preserves the existing downloads folder permissions");
+    check(::lstat((root + "/data/Stremio/appdata").c_str(), &mode_info) == 0 &&
+          (mode_info.st_mode & 0777) == 0775,
+        "startup preserves existing appdata directory permissions");
+    const auto permission_receipt = boot_text();
+    check(permission_receipt.find("phase=before path=/data/Stremio mode=0777") != std::string::npos &&
+          permission_receipt.find("phase=after path=/data/Stremio/downloads mode=0777") != std::string::npos,
+        "boot diagnostics retain before and after modes without changing existing folders");
+    check(permission_receipt.find("storage_process euid_before=") != std::string::npos &&
+          permission_receipt.find(" owner=") != std::string::npos,
+        "boot diagnostics distinguish directory ownership from process credentials");
     check_no_probe();
 
     reset(); fail_operation = "lstat"; fail_path = "/data";
@@ -227,6 +284,9 @@ int main(int argc, char** argv) {
     const auto missing_helper = ps5_prepare_storage();
     check(!missing_helper.filesystem_available && missing_helper.logs_available,
         "helper refusal leaves downloads unavailable but retains diagnostic logs");
+    check(!missing_helper.data_available && missing_helper.data_errno == EPERM &&
+          !fs::exists(root + "/data/Stremio/appdata"),
+        "missing genuine data access never creates appdata or exposes empty account storage");
     check(helper_calls == 1 && missing_helper.filesystem_status == int(helper_status),
         "refused grant is recorded and never retried in a loop");
 
@@ -251,7 +311,7 @@ int main(int argc, char** argv) {
     failure_errno = ENOSPC; deny_until_grant = false;
     const auto full = ps5_prepare_storage();
     check(!full.filesystem_available && full.logs_available && helper_calls == 0,
-        "full disk is reported without an unnecessary filesystem grant");
+        "allocation failure is reported without an unnecessary filesystem grant");
     check(boot_text().find("fsync storage probe") != std::string::npos,
         "fsync failure has a distinct boot diagnostic");
     check_no_probe();
@@ -278,6 +338,118 @@ int main(int argc, char** argv) {
     std::ofstream(old_probe + "/keep.txt") << "previous launch";
     check(ps5_prepare_storage().filesystem_available, "probe skips a previous launch's directory");
     check(fs::exists(old_probe + "/keep.txt"), "probe never deletes an existing directory's data");
+
+    reset();
+    fs::remove_all(root + "/download0");
+    fs::remove_all(root + "/mnt/sandbox/PPSA74126_000/download0");
+    const auto fresh = ps5_prepare_storage();
+    check(fresh.filesystem_available && fresh.data_available && !fresh.helper_requested,
+        "fresh install starts without any reserved download0 mount");
+    check(std::string(fresh.data) == "/data/Stremio/appdata", "fresh install uses grow-on-demand appdata");
+    check(::lstat((root + "/data/Stremio/appdata").c_str(), &mode_info) == 0 &&
+          (mode_info.st_mode & 0777) == 0700, "new appdata is private");
+    check(fs::is_empty(root + "/data/Stremio/appdata"), "fresh storage does not preallocate caches or media");
+    check_no_probe();
+
+    reset(); legacy_settings();
+    std::ofstream(root + "/download0/stremio/progress.json") << "{\"resume\":123}";
+    std::ofstream(root + "/download0/stremio/config.json") << "{\"preferred\":\"en\"}";
+    std::ofstream(root + "/download0/stremio/cache.bin") << "never migrate cache";
+    std::ofstream(root + "/download0/stremio/unknown.json") << "never migrate arbitrary data";
+    const auto migrated = ps5_prepare_storage();
+    check(migrated.data_available, "reachable legacy account and progress migrate");
+    for (const char* name : {"settings.json", "progress.json", "config.json"}) {
+        check(read_file(std::string("/data/Stremio/appdata/") + name) ==
+              read_file(std::string("/download0/stremio/") + name), "whitelisted settings copy exact bytes and retain old source");
+        check(::lstat((root + "/data/Stremio/appdata/" + name).c_str(), &mode_info) == 0 &&
+              (mode_info.st_mode & 0777) == 0600, "migrated sensitive files are private");
+    }
+    check(!fs::exists(root + "/data/Stremio/appdata/cache.bin") &&
+          !fs::exists(root + "/data/Stremio/appdata/unknown.json"), "migration excludes caches and all unlisted files");
+    check(boot_text().find("fake-sensitive-token") == std::string::npos &&
+          boot_text().find("migrated_files=3") != std::string::npos, "boot logs only migration result, never settings content");
+    std::ofstream(root + "/data/Stremio/appdata/settings.json") << "new account";
+    ps5_boot_close();
+    check(ps5_prepare_storage().data_available, "migration repeats safely");
+    check(read_file("/data/Stremio/appdata/settings.json") == "new account" &&
+          read_file("/download0/stremio/settings.json").find("fake-sensitive-token") != std::string::npos,
+        "repeat startup preserves current account and never deletes old source");
+    check_no_probe();
+
+    reset();
+    std::ofstream(root + "/mnt/sandbox/PPSA74126_000/download0/stremio/settings.json") << "sandbox account";
+    fail_operation = "lstat"; fail_path = "/data";
+    check(ps5_prepare_storage().data_available &&
+          read_file("/data/Stremio/appdata/settings.json") == "sandbox account",
+        "legacy account still migrates through resolved sandbox mount after elevation");
+    check_no_probe();
+
+    reset(); legacy_settings(); short_migration_io = interrupt_migration_write = true;
+    check(ps5_prepare_storage().data_available &&
+          read_file("/data/Stremio/appdata/settings.json") == read_file("/download0/stremio/settings.json"),
+        "legacy migration handles partial reads/writes and interrupted writes");
+    check_no_probe();
+
+    reset(); legacy_settings(); late_target = true;
+    check(ps5_prepare_storage().data_available && read_file("/data/Stremio/appdata/settings.json") == "newer destination",
+        "migration rechecks target immediately before rename and keeps a newer file");
+    check_no_probe();
+
+    for (const char* kind : {"appdata", "target", "legacy"}) {
+        reset();
+        fs::create_directory(root + "/outside");
+        std::ofstream(root + "/outside/keep.json") << "keep outside";
+        if (std::string(kind) == "appdata") fs::create_directory_symlink(root + "/outside", root + "/data/Stremio/appdata");
+        else if (std::string(kind) == "target") {
+            fs::create_directory(root + "/data/Stremio/appdata");
+            fs::create_symlink(root + "/outside/keep.json", root + "/data/Stremio/appdata/settings.json");
+        } else fs::create_symlink(root + "/outside/keep.json", root + "/download0/stremio/settings.json");
+        const auto rejected = ps5_prepare_storage();
+        check(rejected.filesystem_available && !rejected.data_available && rejected.data_errno == ELOOP,
+            "appdata and migration refuse symlink redirection");
+        check(read_file("/outside/keep.json") == "keep outside", "refused symlink leaves outside data untouched");
+        check_no_probe();
+    }
+
+    reset();
+    fs::create_directory(root + "/download0/stremio/settings.json");
+    check(!ps5_prepare_storage().data_available, "non-regular legacy account fails explicitly");
+    check_no_probe();
+
+    reset(); legacy_settings();
+    fs::resize_file(root + "/download0/stremio/settings.json", (4u << 20) + 1);
+    const auto too_large = ps5_prepare_storage();
+    check(!too_large.data_available && too_large.data_errno == EFBIG &&
+          !fs::exists(root + "/data/Stremio/appdata/settings.json"), "oversized legacy data never publishes a partial account");
+    check_no_probe();
+
+    for (const char* operation : {"open", "read", "write", "fsync", "rename"}) {
+        reset(); legacy_settings();
+        fail_operation = operation;
+        fail_path = (fail_operation == "read") ? "/download0/stremio/settings.json" : ".migration-";
+        failure_errno = EIO; deny_until_grant = false;
+        const auto failure = ps5_prepare_storage();
+        check(failure.filesystem_available && !failure.data_available && failure.data_errno == EIO,
+            "failed legacy migration blocks account initialization with a concrete error");
+        check(!fs::exists(root + "/data/Stremio/appdata/settings.json") &&
+              read_file("/download0/stremio/settings.json").find("fake-sensitive-token") != std::string::npos,
+            "failed migration leaves no partial destination and retains original account");
+        check_no_probe();
+        fail_operation.clear(); ps5_boot_close();
+        check(ps5_prepare_storage().data_available &&
+              read_file("/data/Stremio/appdata/settings.json") == read_file("/download0/stremio/settings.json"),
+            "retry recovers migration after the storage error is resolved");
+        check_no_probe();
+    }
+
+    for (const char* operation : {"mkdir", "open", "write"}) {
+        reset(); fail_operation = operation; fail_path = "/data/Stremio/appdata";
+        failure_errno = EACCES; deny_until_grant = false;
+        const auto denied_data = ps5_prepare_storage();
+        check(denied_data.filesystem_available && !denied_data.data_available &&
+              denied_data.data_errno == EACCES, "appdata permission failure is distinct from verified root access");
+        check_no_probe();
+    }
 
     ps5_boot_close();
     fs::remove_all(root);
