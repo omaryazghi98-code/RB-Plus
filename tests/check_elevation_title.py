@@ -1,31 +1,39 @@
 #!/usr/bin/env python3
-"""Ensure the native filesystem elevation helper targets the packaged title."""
+"""Keep filesystem elevation pinned to the firmware-13.60-compatible helper."""
 import json
 from pathlib import Path
-import re
 
 root = Path(__file__).resolve().parents[1]
-metadata = json.loads((root / "app/sce_sys/param.json").read_text())
-title_id = metadata["titleId"]
-
-helper = (root / "native/filesystem/helper/main.cpp").read_text()
-makefile = (root / "native/filesystem/helper/Makefile").read_text()
+title_id = json.loads((root / "app/sce_sys/param.json").read_text())["titleId"]
 builder = (root / "tools/build-native-entry.sh").read_text()
+helper_builder = (root / "tools/build-lapy-helper.py").read_text()
+elevation_header = (root / "native/filesystem/elevation.hpp").read_text()
 
-fallback = re.search(r'^#define TARGET_TITLE_ID "([A-Z0-9]+)"$', helper, re.MULTILINE)
-if fallback is None:
-    raise SystemExit("Elevation helper has no explicit title-ID fallback")
-if fallback.group(1) != title_id:
-    raise SystemExit(
-        f"Elevation helper fallback {fallback.group(1)} does not match packaged title {title_id}"
-    )
-if "TARGET_TITLE_ID ?= PPSA98273" not in makefile:
-    raise SystemExit("Elevation helper Makefile default must match the RBTV+ development title")
-if "-DTARGET_TITLE_ID=" not in makefile or '$(TARGET_TITLE_ID)' not in makefile:
-    raise SystemExit("Elevation helper build must compile its target ID as a string literal")
-if 'TARGET_TITLE_ID="$TITLE" OUTPUT="$B/sandbox-elevator.elf"' not in builder:
-    raise SystemExit("Native app builder must pass its selected title ID to the elevation helper")
-if "std::memcmp(info.title_id, target_title_id, sizeof(target_title_id)) != 0" not in helper:
-    raise SystemExit("Elevation helper must keep its exact caller-title check")
+if title_id != "PPSA98273":
+    raise SystemExit(f"Unexpected RBTV+ development title: {title_id}")
+if 'LAPY_COMMIT = "153c2362b1bb78475b2fcf46ba71552698ae2f7c"' not in helper_builder:
+    raise SystemExit("Lapy helper must remain pinned to the firmware-13.60 startup fix")
+if 'SDK = CACHE / "ps5-payload-sdk-v0.43"' not in helper_builder:
+    raise SystemExit("Lapy helper must use the separate v0.43 Payload SDK")
+if 'SDK_URL = "https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip"' not in helper_builder:
+    raise SystemExit("Lapy helper SDK download URL is not the pinned v0.43 release")
+if 'SDK_SHA256 = "a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb"' not in helper_builder:
+    raise SystemExit("Lapy helper SDK must be checksum-pinned")
+if 'PROTOCOL_SHA256 = "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"' not in helper_builder:
+    raise SystemExit("Lapy helper protocol digest must remain pinned")
+if '[f"TARGET_TITLE={args.title}"]' not in helper_builder:
+    raise SystemExit("Helper build must receive the package's exact title ID")
+if 'python3 "$ROOT/tools/build-lapy-helper.py" "$TITLE" "$B/lapy-helper"' not in builder:
+    raise SystemExit("Native app builder must generate Lapy helper for the selected title")
+if 'cp "$B/lapy-helper/lapy.elf" "$APP/lapy.elf"' not in builder:
+    raise SystemExit("Lapy helper must be packaged beside eboot.bin")
+if 'cp "$B/lapy-helper/lapy-manifest.json" "$APP/lapy-manifest.json"' not in builder:
+    raise SystemExit("Lapy helper manifest must be packaged for traceability")
+if 'cp "$B/lapy-helper/Lapy-MIT.txt" "$APP/licenses/Lapy-MIT.txt"' not in builder:
+    raise SystemExit("Lapy upstream license must be shipped with the app")
+if 'helper_path = "/app0/lapy.elf"' not in elevation_header:
+    raise SystemExit("Elevation client default must match the packaged helper path")
+if "sandbox-elevator.elf" in builder:
+    raise SystemExit("The old firmware-incompatible helper must not be packaged")
 
-print(f"Filesystem elevation target matches package metadata: {title_id}")
+print(f"Filesystem elevation helper pinned for {title_id}: Lapy 153c236 / SDK v0.43")
