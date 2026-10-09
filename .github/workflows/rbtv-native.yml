@@ -30,6 +30,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y g++ pkg-config libcurl4-openssl-dev
+      - name: Validate RBTV+ package metadata
+        run: python3 tools/validate-app-metadata.py app/sce_sys/param.json
       - name: Run offline RBTV protocol tests
         run: python3 tests/run_rbtv_tests.py
       - name: Run native HTTP transport regressions
