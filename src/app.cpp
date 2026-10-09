@@ -481,12 +481,13 @@ void App::set_view(const std::string& v) {
 	g_art.clear_queue();
 	view = v;
 	zone = "content";
-	if (v == "home") nav_sel = 0, refresh_home_cards();
-	else if (v == "discover") nav_sel = 1, enter_discover();
-	else if (v == "library") nav_sel = 2, enter_library();
-	else if (v == "downloads") nav_sel = 3, downloads_refresh();
-	else if (v == "addons") nav_sel = 4, enter_addons();
-	else if (v == "settings") nav_sel = 4, enter_settings();
+	if (v == "rbtv") nav_sel = 0;
+	else if (v == "home") nav_sel = 1, refresh_home_cards();
+	else if (v == "discover") nav_sel = 2, enter_discover();
+	else if (v == "library") nav_sel = 3, enter_library();
+	else if (v == "downloads") nav_sel = 4, downloads_refresh();
+	else if (v == "addons") nav_sel = 5, enter_addons();
+	else if (v == "settings") nav_sel = 5, enter_settings();
 	dirty_all();
 }
 
@@ -506,13 +507,13 @@ void App::open_search() {
 
 // Buttons that do the same thing on every page outside the player.
 bool App::browse_shortcut(Btn b) {
-	static const char* views[] = {"home", "discover", "library", "downloads", "settings"};
+	static const char* views[] = {"rbtv", "home", "discover", "library", "downloads", "settings"};
 	switch (b) {
 	case Btn::L1:  // previous / next page of the menu
 	case Btn::R1: {
 		if (view == "search" || view == "addons") return false;
 		int next = nav_sel + (b == Btn::L1 ? -1 : 1);
-		if (next < 0 || next > 4) return true;
+		if (next < 0 || next > 5) return true;
 		set_view(views[next]);
 		return true;
 	}
@@ -567,6 +568,10 @@ void App::on_button(Btn b) {
 	if (view == "detail") {
 		return detail_button(b);
 	}
+	if (view == "rbtv-detail") {
+		if (browse_shortcut(b)) return;
+		return rbtv_detail_button(b);
+	}
 	if (browse_shortcut(b)) return;
 
 	if (zone == "nav") nav_button(b);
@@ -582,8 +587,8 @@ void App::on_button(Btn b) {
 		case Btn::Left:
 		case Btn::Circle:
 			if (view == "search") {
-				static const char* views[] = {"home", "discover", "library", "downloads", "settings"};
-				set_view(views[std::clamp(nav_sel, 0, 4)]);
+				static const char* views[] = {"rbtv", "home", "discover", "library", "downloads", "settings"};
+				set_view(views[std::clamp(nav_sel, 0, 5)]);
 			} else zone = "content";
 			break;
 		default: break;
@@ -591,7 +596,8 @@ void App::on_button(Btn b) {
 		dirty_all();
 		return;
 	}
-	if (view == "home") board_button(b);
+	if (view == "rbtv") rbtv_button(b);
+	else if (view == "home") board_button(b);
 	else if (view == "search") search_button(b);
 	else if (view == "discover") discover_button(b);
 	else if (view == "library") library_button(b);
