@@ -1,12 +1,42 @@
-# Stremio Plus
+# RBTV+ for PS5 — RB-Plus
 
-A native Stremio app for PlayStation 5, built around the way you watch on a TV.
-Browse your catalogs, pick a stream, save something for later, and keep your
-library together in an interface designed for the DualSense.
+**Status: integration work in progress.** This repository is the working home for the RBTV+ port, using the native PS5 application and TV interface derived from Stremio Plus as the base.
 
-See the [changelog](CHANGELOG.md) for the latest changes and upgrade notes.
+The target is the original RBTV+ catalogue, event/match details, and stream-resolution flow—not fabricated match fixtures. The Stremio Plus codebase supplies native PS5 rendering, D-pad navigation, the media player, and packaging infrastructure; Stremio-specific account/catalog behavior still needs to be adapted for RBTV+.
 
-![Stremio Plus home screen](docs/images/home.jpg)
+## Current implementation boundaries
+
+- `RBTV_PS5_Port_v0.3.0.zip` is retained as the earlier Windows-hosted web/API prototype for reference. It is **not** integrated into the native C++ executable.
+- The native app currently starts with its existing Stremio account/add-on flow. RBTV+ API endpoints and match data have not yet been connected to the native UI.
+- RBTV+ API endpoint domains found in the APK must be reviewed before the first live request. Do not treat endpoint reachability or ownership as verified.
+- The prototype supports standard HTTP(S) HLS/header relay where possible. RBTV+'s Android stream middleware (including P2P/CSL and provider-specific resolution) has not been ported yet, so some sources may not play.
+- This is not yet a released or console-validated RBTV+ PKG.
+
+## Working workflow
+
+Clone once, then update the local checkout after GitHub changes:
+
+```powershell
+git clone https://github.com/omaryazghi98-code/RB-Plus.git
+cd RB-Plus
+git pull
+```
+
+On subsequent updates, run `git pull` from the repository folder. If you already have a clone, there is no need to download ZIPs.
+
+## Native PS5 build
+
+The inherited native build instructions are in [BUILDING.md](BUILDING.md). The current build metadata and title identity are still Stremio Plus-specific until the RBTV+ integration and packaging transition are completed. Do not install an artifact built from the current source expecting an RBTV+ native port.
+
+## Reference prototype
+
+The earlier web/API prototype is archived at [RBTV_PS5_Port_v0.3.0.zip](RBTV_PS5_Port_v0.3.0.zip). Keep this as a reference while the native implementation is developed; it is not the final architecture.
+
+---
+
+## Original Stremio Plus project information
+
+The sections below are retained as a historical reference for the inherited native codebase and its dependencies. They are not a claim that RBTV+ currently connects to Stremio or that the RBTV+ port is finished.
 
 ## Made for PS5
 
@@ -260,3 +290,8 @@ and attribution are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
 Stremio Plus is an independent homebrew project, unaffiliated with Stremio
 or Sony Interactive Entertainment. Their names, logos, and other trademarks
 belong to their respective owners.
+
+
+## RB-Plus maintenance note
+
+Before release, update this document, the title metadata under `app/sce_sys/param.json`, `CMakeLists.txt`, screenshots and credits to match the final RBTV+ application. Keep upstream attribution and applicable GPL notices intact.
