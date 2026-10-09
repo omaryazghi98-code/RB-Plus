@@ -416,6 +416,9 @@ void App::watch_stop(bool ended) {
 }
 
 void App::watch_save_progress(bool final) {
+	// RBTV events are ephemeral live content, not Stremio library items.
+	// Never write an RBTV event into the linked Stremio account's history.
+	if (starts_with(w_item_.id, "rbtv:")) return;
 	double pos = player_.position(), dur = player_.duration();
 	if (dur <= 0 || w_item_.id.empty()) return;  // live streams
 	bool finished = pos > dur * 0.9;
