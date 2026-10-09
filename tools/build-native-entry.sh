@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Stremio Plus: compile, link and sign the current sources as a native title.
+# RBTV+: compile, link and sign the current sources as a native title.
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/toolchain-env.sh"
 ROOT=$STREMIO_ROOT
 HERE="$ROOT/native"
-TITLE=${1:-PPSA74126}
-NAME=${2:-"Stremio Plus"}
+TITLE=${1:-PPSA98273}
+NAME=${2:-"RBTV+"}
 [[ $TITLE =~ ^PPSA[0-9]{5}$ && -n $NAME ]] || { echo "Invalid title identity" >&2; exit 2; }
 APP_FILES=${APP_FILES:-"$ROOT/app"}
 SDK=$PS5_PAYLOAD_SDK
@@ -101,7 +101,7 @@ title, name = sys.argv[3:]
 if data['titleId'] != title:
     data['titleId'] = title
     data['conceptId'] = title[4:]
-    data['contentId'] = f'UP9000-{title}_00-STREMIOPS5000001'
+    data['contentId'] = f'UP9000-{title}_00-RBTVPLUS00000001'
 localized = data['localizedParameters']
 localized.setdefault(localized.get('defaultLanguage', 'en-US'), {})['titleName'] = name
 localized.setdefault('en-US', {})['titleName'] = name
