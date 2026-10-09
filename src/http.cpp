@@ -144,6 +144,7 @@ static size_t header_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
 			response.retry_after.clear();
 			response.content_range.clear();
 			response.content_encoding.clear();
+			response.rb_session.clear();
 		} else {
 			auto colon = line.find(':');
 			if (colon != std::string::npos) {
@@ -153,6 +154,7 @@ static size_t header_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
 				else if (name == "retry-after") response.retry_after = value;
 				else if (name == "content-range") response.content_range = value;
 				else if (name == "content-encoding") response.content_encoding = lower(value);
+				else if (name == "rb-session") response.rb_session = value;
 				else if (name == "cache-control") {
 					if (!response.cache_control.empty()) response.cache_control += ", ";
 					response.cache_control += value;
