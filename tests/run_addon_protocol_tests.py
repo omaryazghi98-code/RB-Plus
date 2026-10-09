@@ -46,7 +46,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/redirect":
             self.reply(b"redirect-body-must-not-be-parsed", 302, {"Location": "/ok", "ETag": "discard"})
         elif path == "/ok":
-            self.reply(b'{"metas":[]}', headers={"ETag": '"fixture"', "Cache-Control": "max-age=60"})
+            self.reply(b'{"metas":[]}', headers={"ETag": '"fixture"', "Cache-Control": "max-age=60", "rb-session": "rb-session-fixture"})
         elif path == "/gzip":
             self.reply(gzip.compress(b'{"metas":[]}'), headers={"Content-Encoding": "gzip"})
         elif path == "/headers":
