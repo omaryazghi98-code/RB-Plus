@@ -247,9 +247,6 @@ const char* elevation_status_name(int status) noexcept {
     case 9: return "loader connection/communication failed";
     case 10: return "protocol error";
     case 11: return "bundled helper ELF couldn't be opened";
-    case 12: return "elfldr kernel-data argument unavailable";
-    case 13: return "helper couldn't read kernel process state";
-    case 14: return "kernel root vnode unavailable";
     default: return "unknown status";
     }
 }
