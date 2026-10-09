@@ -14,4 +14,6 @@ namespace elevation
 // Each call streams the bundled, exact-title Lapy helper to the local elfldr.
 [[nodiscard]] Status request(Capability capability,
                              const char *helper_path = "/app0/lapy.elf") noexcept;
+// Fixed diagnostic for the latest helper-open attempt; no filesystem contents.
+[[nodiscard]] const char *helper_open_diagnostic() noexcept;
 } // namespace elevation
