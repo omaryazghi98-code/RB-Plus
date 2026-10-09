@@ -19,7 +19,7 @@ file(GLOB_RECURSE HUI_SOURCES CONFIGURE_DEPENDS "${HUI_DIR}/src/gfx/*.cpp" "${HU
 # Playback uses FFmpeg. The gallery's background-music decoder is unused.
 list(FILTER HUI_SOURCES EXCLUDE REGEX "/audio/music\\.cpp$")
 set(STREMIO_SOURCES
-    src/main.cpp src/app.cpp src/app_board.cpp src/app_browse.cpp src/app_detail.cpp src/app_preview_meta.cpp
+    src/main.cpp src/app.cpp src/app_rbtv.cpp src/app_board.cpp src/app_browse.cpp src/app_detail.cpp src/app_preview_meta.cpp
     src/app_settings.cpp src/app_preferences.cpp src/app_watch.cpp src/home_ui.cpp src/download_directory.cpp
     src/calendar_date.cpp src/controller_ambient.cpp src/ui_language.cpp
     src/app_downloads.cpp src/download_manager.cpp src/download_transfer.cpp src/download_text.cpp
