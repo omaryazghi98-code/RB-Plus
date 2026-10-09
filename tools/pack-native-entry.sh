@@ -2,7 +2,7 @@
 # Pack a verified current app folder; file modes are preserved inside the image.
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/toolchain-env.sh"
-TITLE=${1:-PPSA74126}
+TITLE=${1:-PPSA98273}
 [[ $TITLE =~ ^PPSA[0-9]{5}$ ]] || { echo "Invalid title ID" >&2; exit 2; }
 SRC="$OUT_DIR/$TITLE"
 [[ -f $SRC/build-receipt.json && -x $SRC/eboot.bin ]] || {
