@@ -1,4 +1,4 @@
-# Building Stremio Plus
+# Building RBTV+
 
 The project has a native PS5 target and a Linux development target. Run the
 commands below from the repository root. Linux or WSL with Ubuntu 24.04 is
@@ -35,12 +35,12 @@ dependencies. Adjust `BUILD_JOBS` for your machine's available memory.
 
 | Output | Purpose |
 | --- | --- |
-| `dist/PPSA74126.ffpfsc` | Native image for a compatible homebrew loader |
-| `dist/PPSA74126.zip` | The same application as a folder archive |
-| `dist/PPSA74126/` | Uncompressed application directory |
+| `dist/PPSA98273.ffpfsc` | Native image for a compatible homebrew loader |
+| `dist/PPSA98273.zip` | The same application as a folder archive |
+| `dist/PPSA98273/` | Uncompressed application directory |
 | `build/native/pie.elf` | Matching ELF with source line information for debugging |
 
-The title ID is `PPSA74126`; the displayed app name is **Stremio Plus**.
+The development title ID is `PPSA98273`; the displayed app name is **RBTV+**. This is a personal homebrew development identity, not an official Sony-assigned product ID.
 Version information comes from `CMakeLists.txt` and `app/sce_sys/param.json`,
 and the build rejects inconsistent metadata. A build receipt records the
 source and packaged file identities. Packaging checks that receipt before
