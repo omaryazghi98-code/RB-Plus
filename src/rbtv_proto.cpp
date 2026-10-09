@@ -129,8 +129,8 @@ bool parse_team(std::string_view bytes, uint64_t language, Team& team, std::stri
     Fields fields;
     if (!parse_fields(bytes, fields, error)) return false;
     team.id = number(fields, 1);
-    if (!parse_string_map(fields, 3, *static_cast<std::map<std::string, std::string>*>(nullptr),
-                          true, &team.names)) {
+    std::map<std::string, std::string> unused;
+    if (!parse_string_map(fields, 3, unused, true, &team.names)) {
         // The helper needs an unused string-map reference for the numeric-key path.
         error = "Malformed team name map";
         return false;
@@ -197,7 +197,6 @@ bool parse_stream(std::string_view bytes, Stream& stream, std::string& error) {
     stream.full_name = str(fields, 10);
     stream.cdn_type = number(fields, 11);
     for (const Field* f : all(fields, 12, 2)) stream.backup_domains.push_back(f->bytes);
-    std::map<std::string, std::string> ignored;
     if (!parse_string_map(fields, 20, stream.headers)) {
         error = "Malformed stream header map";
         return false;
