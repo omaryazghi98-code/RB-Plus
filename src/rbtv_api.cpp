@@ -87,7 +87,8 @@ std::vector<std::string> request_headers(const ApiConfig& config) {
 }
 bool get(const ApiConfig& config, const std::string& path,
          const std::vector<std::pair<std::string, std::string>>& params,
-         std::string& body, std::string& error, const std::atomic<bool>* cancel) {
+         std::string& body, std::string& error, const std::atomic<bool>* cancel,
+         std::string* response_session = nullptr) {
     if (!config_valid(config, error)) return false;
     if (cancel && cancel->load()) { error = "Cancelled"; return false; }
     const std::string url = make_url(config.data_api, path, params);
@@ -98,13 +99,15 @@ bool get(const ApiConfig& config, const std::string& path,
         return false;
     }
     body = response.body;
+    if (response_session) *response_session = response.rb_session;
     return true;
 }
 bool get_pb(const ApiConfig& config, const std::string& path,
             const std::vector<std::pair<std::string, std::string>>& params,
-            std::string& data, std::string& error, const std::atomic<bool>* cancel) {
+            std::string& data, std::string& error, const std::atomic<bool>* cancel,
+            std::string* response_session = nullptr) {
     std::string response;
-    if (!get(config, path, params, response, error, cancel)) return false;
+    if (!get(config, path, params, response, error, cancel, response_session)) return false;
     uint64_t code = 0;
     std::string message;
     if (!parse_pb_response(response, code, message, data, error)) return false;
@@ -244,7 +247,7 @@ bool resolve_stream(const ApiConfig& config, uint64_t match_id, uint64_t sport_t
     if (region.continent.empty() || region.country.empty()) {
         if (!get_region(config, region, error, cancel)) return false;
     }
-    std::string data;
+    std::string data, response_session;
     const std::vector<std::pair<std::string, std::string>> params = {
         {"matchId", std::to_string(match_id)},
         {"sportType", std::to_string(sport_type)},
@@ -255,12 +258,13 @@ bool resolve_stream(const ApiConfig& config, uint64_t match_id, uint64_t sport_t
         {"digit", config.digit},
         {"withOriginal", "true"}
     };
-    if (!get_pb(config, "/api/stream/detail", params, data, error, cancel)) return false;
+    if (!get_pb(config, "/api/stream/detail", params, data, error, cancel, &response_session)) return false;
     Stream parsed;
     bool found = false;
     if (!parse_stream_response(data, parsed, found, error)) return false;
     if (!found) { error = "RBTV stream-detail response contained no stream"; return false; }
     use_backup_domain(parsed);
+    if (!response_session.empty()) parsed.headers["rb-session"] = response_session;
     output = std::move(parsed);
     return true;
 }
