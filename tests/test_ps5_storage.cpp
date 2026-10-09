@@ -213,7 +213,7 @@ int sceKernelDebugOutText(int, const char*) { return 0; }
 elevation::Status elevation::request(Capability capability, const char* path) noexcept {
     ++helper_calls;
     check(capability == Capability::filesystem, "only the existing filesystem capability is requested");
-    check(std::strcmp(path, "/app0/sandbox-elevator.elf") == 0, "existing bundled helper path is preserved");
+    check(std::strcmp(path, "/app0/lapy.elf") == 0, "pinned Lapy helper path is used");
     if (helper_status == Status::ok && repair_on_grant) granted = true;
     return helper_status;
 }
