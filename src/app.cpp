@@ -72,7 +72,7 @@ bool App::init(const std::string& base_dir, const std::string& data_dir, bool of
 	rbtv_sports = {{"Football"}, {"Basketball"}, {"Tennis"}, {"Baseball"},
 	               {"Cricket"}, {"Hockey"}, {"Other"}};
 	view = offline_ ? "home" : "rbtv";
-	zone = "content";
+	zone = offline_ ? "content" : "rbtv-sports";
 	nav_sel = offline_ ? 1 : 0;
 	if (settings_.rbtv_data_api.empty() || settings_.rbtv_web_origin.empty()) {
 		rbtv_status = "Set the reviewed HTTPS data endpoint and website origin in Settings.";
