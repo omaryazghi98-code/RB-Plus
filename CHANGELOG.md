@@ -1,5 +1,14 @@
 # Changelog
 
+## RBTV+ port — native catalogue screen
+
+- Made the native RBTV+ screen the default app view (the desktop preview fixture route remains unchanged).
+- Added native sport selection, a live catalogue list, match detail and real stream choices using the new API client.
+- Added editable HTTPS data/origin settings and a separate approval confirmation. Changing an endpoint revokes approval; saving values alone does not make a request.
+- Routed resolved direct HTTP(S) stream URLs and returned request headers to the existing native player.
+- Shows a clear unsupported-source message when RBTV+ resolves a source without a direct URL, because the Android P2P/CSL/WebRTC/CDN middleware is not ported.
+- No service endpoint has been contacted during development, no demo match catalogue was added, and console playback remains unverified.
+
 ## RBTV+ port — native protocol layer
 
 - Added a bounded Protocol Buffers decoder for RBTV match, league, team, stream, signature and user-region payloads.
