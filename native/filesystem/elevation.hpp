@@ -11,7 +11,7 @@ namespace elevation
 {
 // Call during single-threaded startup, before creating workers or opening files
 // outside the sandbox. Only Status::ok permits continuing with elevated work.
-// Each call launches one bundled helper; no persistent service is installed.
+// Each call streams the bundled, exact-title Lapy helper to the local elfldr.
 [[nodiscard]] Status request(Capability capability,
-                             const char *helper_path = "/app0/sandbox-elevator.elf") noexcept;
+                             const char *helper_path = "/app0/lapy.elf") noexcept;
 } // namespace elevation
