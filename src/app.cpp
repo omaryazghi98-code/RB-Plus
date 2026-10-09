@@ -51,7 +51,7 @@ bool App::init(const std::string& base_dir, const std::string& data_dir, bool of
 	// Keep the old download directory in the inventory when selecting another
 	// volume. The registry in appdata records every previously used directory.
 #ifdef PLATFORM_PS5_NATIVE
-	const std::string downloads_parent = "/data/Stremio";
+	const std::string downloads_parent = "/data/RBTVPlus";
 #else
 	const std::string& downloads_parent = data_dir_;
 #endif
