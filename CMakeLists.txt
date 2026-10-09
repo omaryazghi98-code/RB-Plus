@@ -27,6 +27,7 @@ set(STREMIO_SOURCES
     src/artcache.cpp src/bidi.cpp src/http.cpp src/hwdec_ps5.cpp src/player.cpp src/player_yuv.cpp
     src/netstream.cpp src/stremio.cpp src/stream_presentation.cpp src/subtitles.cpp src/tasks.cpp src/util.cpp
     src/yuv_convert.cpp src/video_gl.cpp src/texture_cache.cpp src/diagnostics.cpp src/display_output.cpp
+    src/rbtv_proto.cpp src/rbtv_api.cpp
     src/torrent/bencode.cpp src/torrent/engine.cpp src/torrent/torrent_stream.cpp
     ${HUI_SOURCES})
 if(PS5 AND PS5_NATIVE)
