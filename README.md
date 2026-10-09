@@ -7,9 +7,12 @@ The target is the original RBTV+ catalogue, event/match details, and stream-reso
 ## Current implementation boundaries
 
 - `RBTV_PS5_Port_v0.3.0.zip` is retained as the earlier Windows-hosted web/API prototype for reference. It is **not** integrated into the native C++ executable.
-- The native app still starts with its existing Stremio account/add-on flow; the RBTV+ API is not connected to the UI yet. A native protocol layer has now been added for bounded protobuf parsing, dynamic signature hashing, live-catalogue/detail requests and stream resolution. Its endpoints are empty by default and it makes no request until a caller explicitly invokes it.
+- The native app now opens on a dedicated RBTV+ catalogue screen built into the C++/Prospero UI. It displays only live API responses, includes sport selection and match details, and passes a resolved direct URL into the existing native player. The protocol layer handles bounded protobuf parsing, dynamic signature hashing, live-catalogue/detail requests and stream resolution. The UI still needs a full test against the real service.
 - RBTV+ API endpoint domains found in the APK must be reviewed before the first live request. Do not treat endpoint reachability or ownership as verified. The client requires HTTPS and never disables certificate validation.
 - The prototype supports standard HTTP(S) HLS/header relay where possible. RBTV+'s Android stream middleware (including P2P/CSL and provider-specific resolution) has not been ported yet, so some sources may not play.
+- The data endpoint and web origin are blank by default. Settings requires a separate approval action before requests can be made; saving an endpoint alone never connects. The API client requires HTTPS and keeps normal TLS validation enabled.
+- Native playback currently supports resolved direct HTTP(S) URLs and returned request headers. Sources requiring RBTV+'s Android P2P/CSL/WebRTC/CDN middleware are explicitly reported as unsupported instead of pretending to play.
+- No service endpoint has been contacted from development/CI, no activation has been bypassed, and no native RBTV+ build has yet been validated on-console.
 - This is not yet a released or console-validated RBTV+ PKG.
 
 ## Working workflow
@@ -32,7 +35,7 @@ Run the offline protocol/signature tests with:
 python3 tests/run_rbtv_tests.py
 ```
 
-These tests exercise synthetic protobuf byte buffers only and do not contact the service hosts extracted from the APK. They are protocol unit tests, not evidence that the live service is reachable or that media playback works.
+These tests exercise synthetic protobuf byte buffers only and do not contact the service hosts extracted from the APK. The CI workflow also configures and compiles the desktop UI target to catch native C++/RML integration errors. These checks are not evidence that the live service is reachable or that media playback works.
 
 ## Native PS5 build
 
