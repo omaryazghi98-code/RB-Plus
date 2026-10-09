@@ -136,7 +136,7 @@ Status grant_filesystem(const Target &target, const State &original) noexcept
     State desired = original;
     desired.root = kernel_get_root_vnode();
     if (!kernel_pointer(desired.root))
-        return Status::unavailable;
+        return Status::root_vnode_unavailable;
     desired.jail = desired.root;
     desired.identity.fill(0);
     desired.authority = system_auth_id;
@@ -173,14 +173,14 @@ Status handle_request(const Message &request) noexcept
         return Status::invalid_request;
     const auto *args = payload_get_args();
     if (args == nullptr || args->kdata_base_addr == 0)
-        return Status::unavailable;
+        return Status::payload_args_unavailable;
 
     Target before{};
     State original{};
     if (!find_target(request.pid, before))
         return Status::target_mismatch;
     if (!read_state(before, original))
-        return Status::unavailable;
+        return Status::kernel_state_unavailable;
     Message prepare = request;
     prepare.kind = Kind::prepare;
     Message prepared{};
