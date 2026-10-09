@@ -8,8 +8,13 @@ when the sandbox cannot list or inspect the console's real `/data` mount.
 ## Startup flow
 
 1. The native client probes `/data` and the RBTV+ appdata directory.
-2. If restricted, it opens `/app0/lapy.elf`, connects to the local ELF loader
-   at `127.0.0.1:9021`, and streams the helper over that connection.
+2. If restricted, it tries `/app0/lapy.elf`, then the title's
+   `/mnt/sandbox/PPSA98273_000/app0/lapy.elf` mount, then the extracted
+   `/data/homebrew/PPSA98273/lapy.elf` path. Each location is attempted with
+   both the kernel open API and POSIX `open()`. It then connects to the local
+   ELF loader at `127.0.0.1:9021` and streams the helper over that connection.
+   If every path fails, the recovery screen reports the individual open
+   results instead of just saying that the helper is unavailable.
 3. The client and helper exchange the versioned 24-byte `ELV1` request /
    prepare / prepared / response protocol. The client acknowledges the prepare
    step with `seteuid(geteuid())`, allowing the helper to verify the expected
