@@ -17,7 +17,7 @@ PATH_NAMES := -ffile-prefix-map=$(abspath $(CURDIR)/..)/=elevation/ \
 ifdef PS5_PAYLOAD_SDK
 PATH_NAMES += -ffile-prefix-map=$(PS5_PAYLOAD_SDK)/=sdk/ -ffile-prefix-map=$(realpath $(PS5_PAYLOAD_SDK))/=sdk/
 endif
-CXXFLAGS := -std=c++20 -O2 -g -gno-record-command-line -Wall -Wextra -Werror -DTARGET_TITLE_ID=\\\"$(TARGET_TITLE_ID)\\\" $(PATH_NAMES)
+CXXFLAGS := -std=c++20 -O2 -g -gno-record-command-line -Wall -Wextra -Werror -DTARGET_TITLE_ID='"$(TARGET_TITLE_ID)"' $(PATH_NAMES)
 LDFLAGS := -Wl,--build-id=none
 
 .PHONY: all clean
