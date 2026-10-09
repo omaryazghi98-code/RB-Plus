@@ -116,22 +116,18 @@ then sync them in Stremio Plus.
 You need a PS5 with a compatible native homebrew loader. The RBTV+ endpoint and website origin are deliberately blank until reviewed and configured in Settings; protocol tests do not contact service hosts. Build instructions are in [BUILDING.md](BUILDING.md). The development title ID is `PPSA98273`.
 
 App settings, the download directory registry, and streaming caches live in
-**`/data/RBTVPlus/appdata`**. Logs stay in **`/data/RBTVPlus`**. The app prepares
-these directories on launch. If your homebrew environment cannot create or
-access the parent directory, create **`/data/RBTVPlus`** and ensure the app's homebrew environment can access it. From a console
-shell, the equivalent is:
+**`/data/RBTVPlus/appdata`**. Logs stay in **`/data/RBTVPlus`**. On startup,
+the app probes filesystem access and uses its pinned Lapy elevation helper
+through the local ELF loader on port `9021` when the sandbox restricts
+`/data`. The helper includes the upstream firmware 13.60 credential-layout
+fix; the exact RBTV+ package still needs on-console validation. Do not try to
+fix an elevation failure with broad `chmod 0777` changes: directory modes do
+not grant the missing sandbox capability.
 
-```sh
-mkdir -p /data/RBTVPlus
-chmod 0777 /data/RBTVPlus
-```
-
-The homebrew environment must allow the app to access that directory and
-provide a local ELF loader on port `9021`. The app uses that loader for its
-filesystem grant and automatically starts a PS5 download writer when a
-torrent download begins. Choose a video destination with the folder picker
-in Settings before starting a new download. If no folder has been selected,
-the download action shows a reminder with an OK button. Existing downloads
+The app also packages a separate PS5 download writer. Choose a video
+destination with the folder picker in Settings before starting a new download.
+If no folder has been selected, the download action shows a reminder with an
+OK button. Existing downloads
 in `/data/RBTVPlus/downloads/` are discovered and included when moving to your
 chosen folder. Keep enough free space on the destination filesystem.
 
