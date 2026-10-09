@@ -77,11 +77,10 @@ python3 "$HERE/check_imports.py" "$B/pie.elf" "$GL/lib" "$SDK/target/lib" "$B/st
 python3 "$ROOT/tools/native-startup.py" configure-process "$B/eboot.elf" \
     | tee "$B/native-process.json"
 
-# This separate SDK payload is requested by the native filesystem client.
-# It is validated independently; the no-inline-syscall gate above applies to
-# the native title's pie.elf, not to this loader-run helper.
-make -C "$HERE/filesystem/helper" PS5_PAYLOAD_SDK="$SDK" TARGET_TITLE_ID="$TITLE" OUTPUT="$B/sandbox-elevator.elf"
-python3 "$HERE/filesystem/validate-helper.py" "$B/sandbox-elevator.elf"
+# Build the exact-title Lapy helper with SDK v0.43. This pinned revision
+# includes the upstream credential-layout fix for firmware 13.60; its ELF
+# protocol remains compatible with native/filesystem/elevation.cpp.
+python3 "$ROOT/tools/build-lapy-helper.py" "$TITLE" "$B/lapy-helper"
 make -C "$HERE/download_writer/helper" PS5_PAYLOAD_SDK="$SDK" OUTPUT="$B/download-writer.elf"
 python3 "$HERE/filesystem/validate-helper.py" "$B/download-writer.elf"
 
@@ -92,7 +91,8 @@ mkdir -p "$APP/sce_sys" "$APP/sce_module"
 "$TOOL" self --sign --in "$B/eboot.elf" --out "$APP/eboot.bin" --magic 0x1D3D154F
 (cd "$BP/runtime" && sha256sum --check --strict libc.prx.sha256)
 cp "$BP/runtime/libc.prx" "$APP/sce_module/libc.prx"
-cp "$B/sandbox-elevator.elf" "$APP/sandbox-elevator.elf"
+cp "$B/lapy-helper/lapy.elf" "$APP/lapy.elf"
+cp "$B/lapy-helper/lapy-manifest.json" "$APP/lapy-manifest.json"
 cp "$B/download-writer.elf" "$APP/download-writer.elf"
 python3 - "$APP_FILES/sce_sys/param.json" "$APP/sce_sys/param.json" "$TITLE" "$NAME" <<'PY'
 import json, pathlib, sys
@@ -117,6 +117,9 @@ bash "$BP/tools/validate-assets.sh" "$APP/sce_sys"
 for directory in assets fonts hui licenses; do
     [[ ! -d $APP_FILES/$directory ]] || cp -a "$APP_FILES/$directory" "$APP/"
 done
+# Preserve the helper's upstream MIT license in the installed app.
+mkdir -p "$APP/licenses"
+cp "$B/lapy-helper/Lapy-MIT.txt" "$APP/licenses/Lapy-MIT.txt"
 cp "$APP_FILES/ca-bundle.crt" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY.md" "$APP/"
 # The PS5 cannot enumerate app0 sound folders; preserve an explicit index.
 python3 - "$APP/hui/audio" <<'PY'
