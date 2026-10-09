@@ -1,4 +1,4 @@
-// Stremio Plus native startup storage. SPDX-License-Identifier: GPL-3.0-or-later
+// RBTV+ native startup storage. SPDX-License-Identifier: GPL-3.0-or-later
 #include "ps5_storage.h"
 #include "filesystem/elevation.hpp"
 #include "download_writer/client.hpp"
@@ -15,11 +15,12 @@
 extern "C" int sceKernelDebugOutText(int channel, const char* text);
 
 namespace {
-constexpr char kLogDirectory[] = "/data/Stremio";
-constexpr char kAppDataDirectory[] = "/data/Stremio/appdata";
-constexpr char kSandboxApp[] = "/mnt/sandbox/PPSA74126_000/app0";
-constexpr char kSandboxData[] = "/mnt/sandbox/PPSA74126_000/download0/stremio";
-constexpr char kInstalledApp[] = "/data/homebrew/PPSA74126";
+constexpr char kLogDirectory[] = "/data/RBTVPlus";
+constexpr char kAppDataDirectory[] = "/data/RBTVPlus/appdata";
+constexpr char kSandboxApp[] = "/mnt/sandbox/PPSA98273_000/app0";
+constexpr char kSandboxData[] = "/mnt/sandbox/PPSA98273_000/download0/rbtvplus";
+constexpr char kLegacySandboxData[] = "/mnt/sandbox/PPSA74126_000/download0/stremio";
+constexpr char kInstalledApp[] = "/data/homebrew/PPSA98273";
 int boot_descriptor = -1;
 
 struct Descriptor {
@@ -107,7 +108,7 @@ bool probe_writes(const char* parent, StorageProbe& result) noexcept {
         if (::fchmod(descriptor, 0600) != 0) return result.fail("fchmod storage probe");
         if (::fstat(descriptor, &info) != 0) return result.fail("fstat storage probe");
         if (!S_ISREG(info.st_mode)) return result.fail("regular storage probe", EINVAL);
-        constexpr char token[] = "Stremio Plus storage proof\n";
+        constexpr char token[] = "RBTV+ storage proof\n";
         std::size_t offset = 0;
         while (offset < sizeof(token)) {
             const auto count = ::write(descriptor, token + offset, sizeof(token) - offset);
@@ -153,12 +154,12 @@ bool probe_storage(StorageProbe& result) noexcept {
     if (::lstat("/data", &info) != 0) return result.fail("lstat /data");
     if (!S_ISDIR(info.st_mode)) return result.fail("directory /data", ENOTDIR);
     if (::mkdir(kLogDirectory, 0700) != 0 && errno != EEXIST)
-        return result.fail("mkdir /data/Stremio");
-    if (::lstat(kLogDirectory, &info) != 0) return result.fail("lstat /data/Stremio");
-    if (!S_ISDIR(info.st_mode)) return result.fail("directory /data/Stremio", ENOTDIR);
+        return result.fail("mkdir /data/RBTVPlus");
+    if (::lstat(kLogDirectory, &info) != 0) return result.fail("lstat /data/RBTVPlus");
+    if (!S_ISDIR(info.st_mode)) return result.fail("directory /data/RBTVPlus", ENOTDIR);
     for (const char* directory : {"/data", kLogDirectory}) {
         DIR* entries = ::opendir(directory);
-        if (!entries) return result.fail(directory == kLogDirectory ? "opendir /data/Stremio" : "opendir /data");
+        if (!entries) return result.fail(directory == kLogDirectory ? "opendir /data/RBTVPlus" : "opendir /data");
         errno = 0;
         const auto entry = ::readdir(entries);
         const int read_error = entry == nullptr ? errno : 0;
@@ -280,7 +281,7 @@ bool prepare_appdata(StorageProbe& result, unsigned& copied) noexcept {
         bool exists = false;
         if (!regular_destination(target, exists, result)) return false;
     }
-    for (const char* legacy : {"/download0/stremio", kSandboxData}) {
+    for (const char* legacy : {"/download0/stremio", kLegacySandboxData, kSandboxData}) {
         struct stat info{};
         if (::lstat(legacy, &info) != 0) {
             if (errno == ENOENT || errno == ENOTDIR) continue;
@@ -339,7 +340,7 @@ Ps5StoragePaths ps5_prepare_storage() noexcept {
     ps5_boot_close();
     Ps5StoragePaths paths;
     const auto root_before = directory_snapshot(kLogDirectory);
-    const auto downloads_before = directory_snapshot("/data/Stremio/downloads");
+    const auto downloads_before = directory_snapshot("/data/RBTVPlus/downloads");
     const auto euid_before = ::geteuid();
     StorageProbe before, after;
     paths.filesystem_available = probe_storage(before);
@@ -377,13 +378,13 @@ Ps5StoragePaths ps5_prepare_storage() noexcept {
 
     if (ready) {
         // Keep only the current and preceding startup receipt in this folder.
-        (void)::rename("/data/Stremio/boot-current.txt", "/data/Stremio/boot-last.txt");
-        boot_descriptor = ::open("/data/Stremio/boot-current.txt", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        (void)::rename("/data/RBTVPlus/boot-current.txt", "/data/RBTVPlus/boot-last.txt");
+        boot_descriptor = ::open("/data/RBTVPlus/boot-current.txt", O_WRONLY | O_CREAT | O_TRUNC, 0600);
         paths.logs_available = boot_descriptor >= 0;
     }
     char status[640];
     std::snprintf(status, sizeof(status),
-        "[Stremio Plus %s %s] filesystem_status=%d helper_requested=%d logs_available=%d filesystem_available=%d\n"
+        "[RBTV+ %s %s] filesystem_status=%d helper_requested=%d logs_available=%d filesystem_available=%d\n"
         "storage_probe before=\"%s\" before_errno=%d after=\"%s\" after_errno=%d\n",
         STREMIO_VERSION, STREMIO_TITLE_ID, paths.filesystem_status, int(paths.helper_requested),
         int(paths.logs_available), int(paths.filesystem_available),
@@ -400,9 +401,9 @@ Ps5StoragePaths ps5_prepare_storage() noexcept {
     (void)sceKernelDebugOutText(0, status);
     boot_write(status);
     log_directory("before", kLogDirectory, root_before);
-    log_directory("before", "/data/Stremio/downloads", downloads_before);
+    log_directory("before", "/data/RBTVPlus/downloads", downloads_before);
     log_directory("after", kLogDirectory, directory_snapshot(kLogDirectory));
-    log_directory("after", "/data/Stremio/downloads", directory_snapshot("/data/Stremio/downloads"));
+    log_directory("after", "/data/RBTVPlus/downloads", directory_snapshot("/data/RBTVPlus/downloads"));
     ps5_boot_note("filesystem paths resolved");
     return paths;
 }
