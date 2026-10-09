@@ -118,30 +118,30 @@ def fetch_sdk():
 
 
 def fetch_ps5log(title):
-    """Verify upstream ps5log, then add the title's sandbox app0 config path.
-
-    The helper is streamed through elfldr and its /app0 view can differ from
-    the native app's. The packaged helper file is also visible under the
-    title-specific sandbox path, so try its dev.conf first.
-    """
+    """Try the title sandbox path for the helper diagnostic config first."""
     header = PS5LOG / "ps5log.h"
     download(PS5LOG_URL, header, PS5LOG_SHA256)
     text = header.read_text()
-    needle = '''const char *const ps5log_default_conf_paths[] = {
-    "/app0/dev.conf",
-    "/data/homebrew/dev.conf",
-    "./dev.conf",
-};'''
-    replacement = f'''const char *const ps5log_default_conf_paths[] = {{
-    "/mnt/sandbox/{title}_000/app0/dev.conf",
-    "/app0/dev.conf",
-    "/data/homebrew/dev.conf",
-    "./dev.conf",
-}};'''
+    needle = "\n".join([
+        "const char *const ps5log_default_conf_paths[] = {",
+        '    "/app0/dev.conf",',
+        '    "/data/homebrew/dev.conf",',
+        '    "./dev.conf",',
+        "};",
+    ])
+    replacement = "\n".join([
+        "const char *const ps5log_default_conf_paths[] = {",
+        '    "/mnt/sandbox/' + title + '_000/app0/dev.conf",',
+        '    "/app0/dev.conf",',
+        '    "/data/homebrew/dev.conf",',
+        '    "./dev.conf",',
+        "};",
+    ])
     if needle not in text:
+        if '"/mnt/sandbox/' + title + '_000/app0/dev.conf"' in text:
+            return
         raise RuntimeError("Pinned ps5log config-path block changed; refusing to patch")
     header.write_text(text.replace(needle, replacement, 1))
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
