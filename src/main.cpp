@@ -233,6 +233,27 @@ bool load_font(hui::gfx::Renderer& renderer, const std::string& path,
 }
 
 #ifdef PLATFORM_PS5
+const char* elevation_status_name(int status) noexcept {
+    switch (status) {
+    case 0: return "OK";
+    case 1: return "invalid request";
+    case 2: return "unsupported protocol version";
+    case 3: return "unsupported capability";
+    case 4: return "target title/PID mismatch";
+    case 5: return "helper unavailable (older/unknown failure)";
+    case 6: return "process preparation failed";
+    case 7: return "filesystem grant failed";
+    case 8: return "grant rollback failed";
+    case 9: return "loader connection/communication failed";
+    case 10: return "protocol error";
+    case 11: return "bundled helper ELF couldn't be opened";
+    case 12: return "elfldr kernel-data argument unavailable";
+    case 13: return "helper couldn't read kernel process state";
+    case 14: return "kernel root vnode unavailable";
+    default: return "unknown status";
+    }
+}
+
 // Storage failure is shown before an account or any cache worker is opened.
 // Retrying never interprets unreadable settings as a new, signed-out account.
 bool storage_error_screen(const Options& o, const Ps5StoragePaths& storage) {
@@ -253,7 +274,8 @@ bool storage_error_screen(const Options& o, const Ps5StoragePaths& storage) {
     // restricted to create boot-current.txt or the regular diagnostics log.
     const std::string elevation_detail = std::string("Elevation helper: ") +
         (storage.helper_requested ? "requested" : "not requested") +
-        " / status " + std::to_string(storage.filesystem_status);
+        " / status " + std::to_string(storage.filesystem_status) + " (" +
+        elevation_status_name(storage.filesystem_status) + ")";
     const std::string probe_detail = std::string("Filesystem probe: ") +
         (storage.filesystem_available ? "available" : "unavailable") +
         " / startup log: " + (storage.logs_available ? "available" : "unavailable");
