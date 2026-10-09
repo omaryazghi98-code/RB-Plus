@@ -101,7 +101,7 @@ int writable(const std::string& path, int fd) {
     if (!S_ISDIR(after.st_mode) || (after.st_mode & 07777) != 0777 ||
         before.st_dev != after.st_dev || before.st_ino != after.st_ino) return EACCES;
     static std::atomic<unsigned int> probe_counter{0};
-    const std::string probe = ".stremio-folder-probe-" + std::to_string(::getpid()) + '-' +
+    const std::string probe = ".rbtvplus-folder-probe-" + std::to_string(::getpid()) + '-' +
         std::to_string(probe_counter.fetch_add(1, std::memory_order_relaxed));
 #ifdef PLATFORM_PS5_NATIVE
     if (!parent_unchanged(path, fd, error)) return error;
