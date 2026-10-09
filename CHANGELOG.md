@@ -1,5 +1,14 @@
 # Changelog
 
+## RBTV+ native package identity and storage
+
+- Changed the native package metadata, build receipt, validation and package defaults to the development identity `PPSA98273` / `RBTV+`. This is not an official Sony-assigned product ID.
+- Added a standard-library icon generator so the packaged launcher uses an RB mark instead of the inherited Stremio icon.
+- Moved native appdata, logs and default downloads parent to `/data/RBTVPlus`; matched the filesystem mount paths to the new development title ID.
+- Kept the old `PPSA74126` Stremio sandbox download folder only as a legacy settings-migration source. Added native storage startup regression coverage and CI checks for the icon and metadata.
+- These changes do not establish live RBTV+ service reachability or confirm playback on a PS5.
+
+
 ## RBTV+ port — native catalogue screen
 
 - Made the native RBTV+ screen the default app view (the desktop preview fixture route remains unchanged).
