@@ -1,10 +1,10 @@
-// Stremio native startup storage. SPDX-License-Identifier: GPL-3.0-or-later
+// RBTV+ native startup storage. SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 struct Ps5StoragePaths {
     const char* app = "/app0";
-    const char* data = "/data/Stremio/appdata";
-    const char* logs = "/data/Stremio";
+    const char* data = "/data/RBTVPlus/appdata";
+    const char* logs = "/data/RBTVPlus";
     // Fixed operation names only. No account data or filesystem contents.
     const char* data_error = "";
     int data_errno = 0;
