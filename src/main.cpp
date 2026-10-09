@@ -34,6 +34,7 @@ extern "C" {
 #include "platform/ps5/pad.hpp"
 #include "display_output.h"
 #include "ps5_storage.h"
+#include "filesystem/elevation.hpp"
 #include "ui_language.h"
 extern "C" void ps5_load_modules(void);
 #else
