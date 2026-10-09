@@ -62,7 +62,8 @@
 					<div class="rbtv-status">{{rbtv_status}}</div>
 					<div class="rbtv-sports">
 						<div class="rbtv-sport-chip" data-for="sport, si : rbtv_sports"
-						     data-class-selected="si == rbtv_sport_sel">
+						     data-class-active="si == rbtv_sport_sel"
+						     data-class-selected="zone == 'rbtv-sports' && si == rbtv_sport_sel">
 							{{sport.value}}
 						</div>
 					</div>
@@ -101,7 +102,7 @@
 					<div class="rbtv-detail-teams">{{rbtv_detail_teams}}</div>
 					<div class="rbtv-detail-score">{{rbtv_detail_score}}</div>
 					<div class="rbtv-detail-meta">{{rbtv_detail_kickoff}} · {{rbtv_detail_status}}</div>
-					<div class="rbtv-status">{{rbtv_detail_status}}</div>
+					<div class="rbtv-status">{{rbtv_detail_message}}</div>
 					<div class="rbtv-detail-hint"><img class="key-icon" src="icons/cross.png"/> Play selected stream <span><img class="key-icon" src="icons/circle.png"/> Back</span></div>
 				</div>
 				<div class="rbtv-stream-list">
