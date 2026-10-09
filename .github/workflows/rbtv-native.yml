@@ -29,7 +29,7 @@ jobs:
       - name: Install protocol test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ clang-18 pkg-config libcurl4-openssl-dev
+          sudo apt-get install -y g++ clang-18 libclang-rt-18-dev pkg-config libcurl4-openssl-dev
       - name: Validate RBTV+ package metadata
         run: python3 tools/validate-app-metadata.py app/sce_sys/param.json
       - name: Generate and validate RBTV+ launcher icon
