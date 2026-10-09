@@ -17,16 +17,16 @@ if not re.fullmatch(r'\d{2}\.\d{3}\.\d{3}', data.get('contentVersion', '')):
 if not re.fullmatch(r'\d{2}\.\d{2}', data.get('masterVersion', '')):
     raise SystemExit('Invalid masterVersion.')
 if (data.get('applicationCategoryType'), data.get('contentBadgeType')) != (65536, 2):
-    raise SystemExit('Stremio Plus must retain the native media-app category and badge.')
+    raise SystemExit('RBTV+ must retain the native media-app category and badge.')
 if 'gameIntent' in data:
     raise SystemExit('A media-app manifest must not declare a gameIntent.')
 size = data.get('downloadDataSize')
 if isinstance(size, bool) or not isinstance(size, int) or size != 0:
-    raise SystemExit('downloadDataSize must be 0: Stremio Plus stores data on demand outside /download0.')
+    raise SystemExit('downloadDataSize must be 0: RBTV+ stores data on demand outside /download0.')
 localized = data.get('localizedParameters', {})
 default = localized.get('defaultLanguage', '')
-if localized.get(default, {}).get('titleName') != 'Stremio Plus':
-    raise SystemExit('The default application name must be Stremio Plus.')
-if localized.get('en-US', {}).get('titleName') != 'Stremio Plus':
-    raise SystemExit('The English application name must be Stremio Plus.')
-print(f'Metadata validated: Stremio Plus {title}, {data["contentVersion"]}.')
+if localized.get(default, {}).get('titleName') != 'RBTV+':
+    raise SystemExit('The default application name must be RBTV+.')
+if localized.get('en-US', {}).get('titleName') != 'RBTV+':
+    raise SystemExit('The English application name must be RBTV+.')
+print(f'Metadata validated: RBTV+ {title}, {data["contentVersion"]}.')
