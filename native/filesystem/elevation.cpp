@@ -123,8 +123,10 @@ elevation::Status elevation::request(Capability capability, const char *helper_p
     if (helper_path == nullptr)
         return Status::invalid_request;
     const int helper = sceKernelOpen(helper_path, O_RDONLY, 0);
+    // Keep a missing/inaccessible bundled ELF distinct from a helper that
+    // starts but cannot obtain kernel state or filesystem access.
     if (helper < 0)
-        return Status::unavailable;
+        return Status::helper_open_failed;
     const int socket = sceNetSocket("sandbox_elevator", 2, 1, 6);
     const auto result = socket < 0 ? Status::transport_error : submit(socket, helper, message);
     if (socket >= 0)
