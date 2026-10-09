@@ -30,8 +30,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y g++ pkg-config libcurl4-openssl-dev
-      - name: Run offline protocol tests
+      - name: Run offline RBTV protocol tests
         run: python3 tests/run_rbtv_tests.py
+      - name: Run native HTTP transport regressions
+        run: python3 tests/run_addon_protocol_tests.py
 
   desktop-build:
     runs-on: ubuntu-24.04
