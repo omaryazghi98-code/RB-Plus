@@ -64,6 +64,10 @@
     font-size: 17dp;
     color: #ffffff99;
 }
+.rbtv-sport-chip.active {
+    border-color: #8c77e3;
+    color: #ffffffd0;
+}
 .rbtv-sport-chip.selected {
     background-color: #7b5bf5;
     border-color: #ffffffaa;
