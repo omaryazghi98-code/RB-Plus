@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Stremio Plus for Linux preview or as a native PS5 application.
+# Build RBTV+ for Linux preview or as a native PS5 application.
 set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 BUILD_DIR=${BUILD_DIR:-"$ROOT/build"}
@@ -17,8 +17,8 @@ case ${1:-ps5} in
     deps) bash "$ROOT/tools/setup-toolchain.sh" ;;
     ps5)
         bash "$ROOT/tools/setup-toolchain.sh"
-        bash "$ROOT/native/build.sh" "${TITLE_ID:-PPSA74126}" "Stremio Plus"
-        bash "$ROOT/native/pack.sh" "${TITLE_ID:-PPSA74126}"
+        bash "$ROOT/native/build.sh" "${TITLE_ID:-PPSA98273}" "RBTV+"
+        bash "$ROOT/native/pack.sh" "${TITLE_ID:-PPSA98273}"
         ;;
     *) echo "Usage: ./build.sh [desktop|deps|ps5]" >&2; exit 2 ;;
 esac
