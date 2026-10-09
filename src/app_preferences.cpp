@@ -303,7 +303,8 @@ void App::settings_button(Btn button) {
             open_input(setting.label, settings_.rbtv_data_api,
                 "Enter an HTTPS base URL only after reviewing the host.",
                 [this](const std::string& raw) {
-                    const std::string value = strip_trailing_slashes(trim(raw));
+                    std::string value = trim(raw);
+                    while (!value.empty() && value.back() == '/') value.pop_back();
                     if (!value.empty() && (value.rfind("https://", 0) != 0 || !http_valid_url(value))) {
                         show_toast("RBTV data endpoint must be a valid HTTPS URL.", 6);
                         return;
