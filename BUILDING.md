@@ -61,11 +61,15 @@ console's homebrew environment. When deploying the loose application folder,
 preserve executable permission on `eboot.bin` and `sce_module/libc.prx`.
 Keep `pie.elf` from the same build if you need to investigate a crash.
 
-The native build also compiles and packages `sandbox-elevator.elf` and
-`download-writer.elf` with the public Payload SDK. Keep both beside
-`eboot.bin`; torrent downloads start the writer through the console's local
-ELF loader on port `9021`. These payloads are separate from the native
-application executable and are validated for the loader's ELF framing.
+The native build packages two separate helpers beside `eboot.bin`:
+`lapy.elf` for filesystem elevation and `download-writer.elf` for download
+file writes. The Lapy helper is built from pinned source commit
+`153c2362b1bb78475b2fcf46ba71552698ae2f7c` with PS5 Payload SDK v0.43,
+including its upstream firmware 13.60 credential-layout fix. It is streamed
+through the local ELF loader on port `9021`. The download-writer still uses
+the project's primary SDK. A manifest and the Lapy MIT license are included
+with the app. This pins the helper inputs reproducibly; the RBTV+ package
+must still be tested on the target console.
 
 ## Linux development build
 
@@ -86,7 +90,8 @@ track the newest upstream release.
 
 | Component | Version or revision |
 | --- | --- |
-| [PS5 Payload SDK](https://github.com/ps5-payload-dev/sdk) | `v0.42` |
+| [PS5 Payload SDK](https://github.com/ps5-payload-dev/sdk) (main app/download writer) | `v0.42` |
+| [PS5 Payload SDK](https://github.com/ps5-payload-dev/sdk) (Lapy elevation helper) | `v0.43` |
 | [PacBrew ports](https://github.com/ps5-payload-dev/pacbrew-repo) | `v0.40.2` |
 | [ps5-opengl](https://github.com/blackbearreloaded/ps5-opengl) | `v1.0.0` |
 | [ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui) | `4bd942579dd981b3df9c740438489ca6a614ddc0` |
