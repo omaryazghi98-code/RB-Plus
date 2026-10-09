@@ -80,7 +80,7 @@ python3 "$ROOT/tools/native-startup.py" configure-process "$B/eboot.elf" \
 # This separate SDK payload is requested by the native filesystem client.
 # It is validated independently; the no-inline-syscall gate above applies to
 # the native title's pie.elf, not to this loader-run helper.
-make -C "$HERE/filesystem/helper" PS5_PAYLOAD_SDK="$SDK" OUTPUT="$B/sandbox-elevator.elf"
+make -C "$HERE/filesystem/helper" PS5_PAYLOAD_SDK="$SDK" TARGET_TITLE_ID="$TITLE" OUTPUT="$B/sandbox-elevator.elf"
 python3 "$HERE/filesystem/validate-helper.py" "$B/sandbox-elevator.elf"
 make -C "$HERE/download_writer/helper" PS5_PAYLOAD_SDK="$SDK" OUTPUT="$B/download-writer.elf"
 python3 "$HERE/filesystem/validate-helper.py" "$B/download-writer.elf"
