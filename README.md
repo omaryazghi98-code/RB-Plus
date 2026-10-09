@@ -39,7 +39,7 @@ These tests exercise synthetic protobuf byte buffers only and do not contact the
 
 ## Native PS5 build
 
-The inherited native build instructions are in [BUILDING.md](BUILDING.md). The native package metadata and build receipt now identify the app as **RBTV+**, using development title ID `PPSA98273`. The in-app navigation wordmark has also been switched to RBTV+. The inherited launcher icon (`app/sce_sys/icon0.png`) still needs RBTV+ artwork, and the result remains untested on-console—do not install it as a finished port yet.
+The inherited native build instructions are in [BUILDING.md](BUILDING.md). The native package metadata and build receipt now identify the app as **RBTV+**, using development title ID `PPSA98273`. The in-app navigation wordmark and generated launcher icon now use an RBTV+ mark; the launcher asset is generated during packaging. Storage and logs use `/data/RBTVPlus`, with the previous Stremio sandbox data path retained only for migration. The result remains untested on-console, and live API playback is not yet validated—do not treat this as a finished port.
 
 ## Reference prototype
 
