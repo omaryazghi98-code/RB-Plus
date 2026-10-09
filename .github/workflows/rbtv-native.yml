@@ -15,7 +15,10 @@ on:
   pull_request:
     paths:
       - "src/**"
+      - "native/**"
+      - "tools/**"
       - "app/assets/**"
+      - "app/sce_sys/**"
       - "CMakeLists.txt"
       - "tests/**"
       - "BUILDING.md"
