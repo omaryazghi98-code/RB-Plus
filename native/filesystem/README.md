@@ -1,49 +1,52 @@
-# Filesystem integration
+# Filesystem elevation
 
-Stremio Plus uses the filesystem capability helper from
-[ps5-native-app-boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate),
-adapted through ProsperoLight. The implementation retains BlackBearReloaded's
-copyright and GPL-3.0-or-later license.
+RBTV+ checks the filesystem operations needed by appdata before starting
+application workers. The app uses a bundled, exact-title Lapy helper from
+[PS5-Lapy-JB-Daemon](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon)
+when the sandbox cannot list or inspect the console's real `/data` mount.
 
-## Startup
+## Startup flow
 
-`native/ps5_storage.cpp` checks the filesystem operations needed by downloads
-before starting application workers. If access is unavailable, `elevation.cpp`
-submits the bundled `sandbox-elevator.elf` to the console's local ELF loader on
-port 9021. The helper validates the target process and Title ID `PPSA74126`.
-The versioned request and response messages are defined in `protocol.hpp`.
+1. The native client probes `/data` and the RBTV+ appdata directory.
+2. If restricted, it opens `/app0/lapy.elf`, connects to the local ELF loader
+   at `127.0.0.1:9021`, and streams the helper over that connection.
+3. The client and helper exchange the versioned 24-byte `ELV1` request /
+   prepare / prepared / response protocol. The client acknowledges the prepare
+   step with `seteuid(geteuid())`, allowing the helper to verify the expected
+   credential clone before applying its filesystem grant.
+4. The app reruns the storage probe. It only starts account and cache workers
+   after the file and directory operations it needs actually pass.
 
-The application checks access again after a successful grant and resolves its
-app mount. Account settings and streaming caches use `/data/Stremio/appdata`.
-The manifest reserves no `/download0` volume. If an old mount remains
-accessible, startup copies only missing settings, progress, and configuration
-files into appdata; it never copies media caches or deletes the old files.
-The helper is requested during startup and does not install a persistent service.
+The helper is pinned to source commit
+`153c2362b1bb78475b2fcf46ba71552698ae2f7c` and built separately with PS5
+Payload SDK v0.43. That revision includes the upstream credential-layout fix
+for firmware 13.60. The main application and download-writer can continue to
+use the project's normal SDK. The generated helper manifest is shipped beside
+`lapy.elf` for traceability; the build does not claim console validation of
+the generated RBTV+ package.
 
 ## Storage and diagnostics
 
-Diagnostics use `/data/Stremio`. Download destinations are chosen in Settings,
-including mounted volumes under `/mnt`; previously used locations remain in
-the persistent download registry. Startup checks cover directory
-access, file creation, reading, writing, synchronization, renaming and removal.
-File permissions alone do not replace the filesystem capability required by
-the console's loader.
+Persistent app data is stored under `/data/RBTVPlus/appdata` and startup
+receipts under `/data/RBTVPlus`. Existing data is not deleted or chmod'ed by
+the elevation path. A missing or inaccessible directory is not treated as a
+new, signed-out account. If elevation or the post-grant probe fails, the app
+shows a recovery screen before account/cache workers start.
 
-When the log directory is accessible, startup stages are recorded in
-`boot-current.txt`, with the preceding launch retained as `boot-last.txt`.
-If appdata cannot be safely opened, the application displays a storage error
-with Retry and Exit before initializing accounts or cache workers. It does
-not create an alternative `/data` inside its sandbox or treat unreadable
-settings as a signed-out account. Logs have no alternative directory.
+The app does not reserve a `/download0` volume in package metadata. The
+Lapy helper's one-shot ELF path used here does not install a persistent
+service. The independent `download-writer.elf` remains packaged for
+download operations.
 
-## Building
+## Rebuilding and checks
 
-The native build compiles `helper/main.cpp` with the PS5 payload SDK, validates
-the ELF with `validate-helper.py`, and places `sandbox-elevator.elf` beside
-`eboot.bin`. The client and helper share the same protocol header and timeout.
+The native build script fetches a pinned source commit, validates its source
+and protocol digests, verifies the v0.43 SDK archive checksum, and packages
+`lapy.elf`, its manifest, and the MIT license.
 
-Run the host storage checks with:
+Run the static elevation and storage checks with:
 
 ```sh
+python3 tests/check_elevation_title.py
 python3 tests/run_ps5_storage_tests.py
 ```
