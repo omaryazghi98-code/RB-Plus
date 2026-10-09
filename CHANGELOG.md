@@ -1,5 +1,12 @@
 # Changelog
 
+## Filesystem elevation — firmware 13.60 helper update
+
+- Replaced the old custom `sandbox-elevator.elf` with a title-specific Lapy one-shot helper built from pinned upstream commit `153c2362b1bb78475b2fcf46ba71552698ae2f7c`.
+- Built that helper using a separate, checksum-pinned PS5 Payload SDK v0.43, which includes the upstream fix for the firmware 13.60 credential-layout issue.
+- Kept the compatible `ELV1` request/prepare handshake and packaged the helper manifest and MIT license.
+- Added distinct local diagnostics for helper-open failures. The generated RBTV+ package still needs a test on the target PS5.
+
 ## RBTV+ native package identity and storage
 
 - Changed the native package metadata, build receipt, validation and package defaults to the development identity `PPSA98273` / `RBTV+`. This is not an official Sony-assigned product ID.
