@@ -3,6 +3,7 @@
 #include <SDL.h>
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -14,6 +15,7 @@
 #include "artcache.h"
 #include "download_manager.h"
 #include "player.h"
+#include "rbtv_api.h"
 #include "stremio.h"
 #include "tasks.h"
 #include "subtitles.h"
@@ -36,6 +38,16 @@ struct UiRow {
 };
 struct UiChip {
 	std::string value;
+};
+struct UiRbtvMatch {
+	uint64_t id = 0, sport_type = 1;
+	std::string title, league, home, away, score, kickoff, status;
+	bool hot = false;
+};
+struct UiRbtvStream {
+	uint64_t id = 0, sport_type = 1, site_type = 0;
+	std::string name, description;
+	bool recommended = false;
 };
 constexpr int kAddonCols = 4;  // addon tiles per row (browse.rcss)
 constexpr int kDiscCols = 4;   // discover posters per row (browse.rcss #disc-grid)
@@ -132,6 +144,9 @@ struct Settings {
 	std::string date_format = "short";
 	bool controller_ambient_light = true;
 	std::string ui_language = "en", ui_language_mode = "auto";
+	// RBTV domains are intentionally unset until the user reviews and enters them.
+	std::string rbtv_data_api, rbtv_web_origin, rbtv_digit = "snd";
+	bool rbtv_connection_approved = false;
 	std::vector<std::string> extra_addons;
 	std::string auth_key, user_email;
 };
@@ -186,6 +201,15 @@ public:
 	std::vector<UiRow> search_rows;
 	int search_row = 0, search_col = 0;
 	std::string search_status;
+
+	// RBTV+ catalogue/detail model. It is populated only by live API responses.
+	std::vector<UiChip> rbtv_sports;
+	int rbtv_sport_sel = 0, rbtv_match_sel = 0, rbtv_stream_sel = 0;
+	std::vector<UiRbtvMatch> rbtv_matches;
+	std::vector<UiRbtvStream> rbtv_streams;
+	std::string rbtv_status = "Configure HTTPS endpoints and approve service access in Settings.";
+	std::string rbtv_detail_title, rbtv_detail_league, rbtv_detail_teams;
+	std::string rbtv_detail_score, rbtv_detail_kickoff, rbtv_detail_status;
 
 	std::vector<UiChip> disc_chips;
 	int disc_chip = 0;
@@ -333,6 +357,22 @@ private:
 	bool signed_in() const { return !settings_.auth_key.empty(); }
 	std::vector<std::string> pref_sub_langs() const;
 	std::vector<std::string> pref_audio_langs() const;
+
+	// Native RBTV+ provider.
+	void rbtv_load_matches();
+	void rbtv_open_match(const UiRbtvMatch& match);
+	void rbtv_button(Btn button);
+	void rbtv_detail_button(Btn button);
+	void rbtv_play_stream(int index);
+	rbtv::ApiConfig rbtv_api_config() const;
+	void rbtv_cancel_requests();
+	std::vector<rbtv::Match> rbtv_match_data_;
+	std::vector<rbtv::Stream> rbtv_live_stream_data_, rbtv_detail_stream_data_;
+	rbtv::Match rbtv_selected_match_;
+	rbtv::UserInfo rbtv_region_;
+	std::shared_ptr<std::atomic<bool>> rbtv_cancel_, rbtv_detail_cancel_, rbtv_stream_cancel_;
+	int rbtv_generation_ = 0, rbtv_detail_generation_ = 0, rbtv_stream_generation_ = 0;
+	bool rbtv_loading_ = false, rbtv_detail_loading_ = false, rbtv_stream_resolving_ = false;
 
 	// app_board.cpp
 	void build_home();
