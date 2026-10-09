@@ -7,7 +7,7 @@
 using json = nlohmann::json;
 
 // All files remain directly in log_directory; no extra subfolder is appended.
-// The native title uses /data/Stremio. Call start once before worker creation,
+// The native title uses /data/RBTVPlus. Call start once before worker creation,
 // and stop after the player/network/renderer workers have been shut down.
 bool diagnostics_start(const std::string& log_directory);
 void diagnostics_stop();
