@@ -69,17 +69,25 @@ bool App::init(const std::string& base_dir, const std::string& data_dir, bool of
 	user = settings_.user_email.empty() ? "" : std::string(1, char(toupper((unsigned char)settings_.user_email[0])));
 	if (!config_note_.empty()) show_toast(config_note_, 8);
 
-	view = "home";
+	rbtv_sports = {{"Football"}, {"Basketball"}, {"Tennis"}, {"Baseball"},
+	               {"Cricket"}, {"Hockey"}, {"Other"}};
+	view = offline_ ? "home" : "rbtv";
 	zone = "content";
-	settings_refresh();
-	if (!offline_) {
-		if (signed_in()) {
-			load_addons();
-			load_library();
-		} else {
-			login_start();
-		}
+	nav_sel = offline_ ? 1 : 0;
+	if (settings_.rbtv_data_api.empty() || settings_.rbtv_web_origin.empty()) {
+		rbtv_status = "Set the reviewed HTTPS data endpoint and website origin in Settings.";
+	} else if (!settings_.rbtv_connection_approved) {
+		rbtv_status = "Endpoints are configured. Review them and approve access in Settings before connecting.";
+	} else {
+		rbtv_status = "Press Cross to load the live RBTV+ catalogue.";
 	}
+	settings_refresh();
+	if (!offline_ && signed_in()) {
+		load_addons();
+		load_library();
+	}
+	// Don't open a Stremio sign-in overlay on the RBTV+ home screen. The
+	// existing optional Stremio account flow remains available from Settings.
 	dirty_all();
 	return true;
 }
@@ -88,7 +96,8 @@ void App::shutdown() {
 	close_download_directory_picker(true);
 	watch_cancel_next_episode();
 	for (auto* cancel : {&home_cancel_, &search_cancel_, &disc_cancel_, &d_stream_cancel_,
-	                     &d_meta_cancel_, &w_sub_cancel_, &launch_cancel_, &preview_metadata_cancel_, &download_art_cancel_})
+	                     &d_meta_cancel_, &w_sub_cancel_, &launch_cancel_, &preview_metadata_cancel_, &download_art_cancel_,
+	                     &rbtv_cancel_, &rbtv_detail_cancel_, &rbtv_stream_cancel_})
 		if (*cancel) (*cancel)->store(true);
 	++addons_gen_;
 	++account_generation_;
@@ -148,6 +157,10 @@ void App::load_settings() {
 			int(std::clamp(next_delay, 5.0, 120.0)) : 15;
 		settings_.auth_key = jstr(j, "auth_key");
 		settings_.user_email = jstr(j, "user_email");
+		settings_.rbtv_data_api = jstr(j, "rbtv_data_api");
+		settings_.rbtv_web_origin = jstr(j, "rbtv_web_origin");
+		settings_.rbtv_digit = jstr(j, "rbtv_digit", "snd");
+		settings_.rbtv_connection_approved = jbool(j, "rbtv_connection_approved", false);
         settings_.reduced_motion = jbool(j, "reduced_motion", false);
         settings_.ui_sounds = jbool(j, "ui_sounds", true);
         settings_.high_contrast = jbool(j, "high_contrast", false);
@@ -190,6 +203,11 @@ void App::load_settings() {
 #endif
 			if (cfg.contains("subtitle_languages")) settings_.subtitle_langs = jstr(cfg, "subtitle_languages");
 			if (cfg.contains("audio_languages")) settings_.audio_langs = jstr(cfg, "audio_languages");
+			// Endpoint values may be supplied in config.json, but this never
+			// grants network consent; approval is persisted only in settings.json.
+			if (settings_.rbtv_data_api.empty()) settings_.rbtv_data_api = jstr(cfg, "rbtv_data_api");
+			if (settings_.rbtv_web_origin.empty()) settings_.rbtv_web_origin = jstr(cfg, "rbtv_web_origin");
+			if (!jstr(cfg, "rbtv_digit").empty()) settings_.rbtv_digit = jstr(cfg, "rbtv_digit");
 			const json& ex = jobj(cfg, "extra_addons");
 			if (ex.is_array())
 				for (auto& v : ex)
