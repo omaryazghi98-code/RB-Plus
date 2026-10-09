@@ -117,9 +117,30 @@ def fetch_sdk():
             shutil.rmtree(staging)
 
 
-def fetch_ps5log():
+def fetch_ps5log(title):
+    """Verify upstream ps5log, then add the title's sandbox app0 config path.
+
+    The helper is streamed through elfldr and its /app0 view can differ from
+    the native app's. The packaged helper file is also visible under the
+    title-specific sandbox path, so try its dev.conf first.
+    """
     header = PS5LOG / "ps5log.h"
     download(PS5LOG_URL, header, PS5LOG_SHA256)
+    text = header.read_text()
+    needle = '''const char *const ps5log_default_conf_paths[] = {
+    "/app0/dev.conf",
+    "/data/homebrew/dev.conf",
+    "./dev.conf",
+};'''
+    replacement = f'''const char *const ps5log_default_conf_paths[] = {{
+    "/mnt/sandbox/{title}_000/app0/dev.conf",
+    "/app0/dev.conf",
+    "/data/homebrew/dev.conf",
+    "./dev.conf",
+}};'''
+    if needle not in text:
+        raise RuntimeError("Pinned ps5log config-path block changed; refusing to patch")
+    header.write_text(text.replace(needle, replacement, 1))
 
 
 def main():
@@ -132,7 +153,7 @@ def main():
 
     fetch_lapy()
     fetch_sdk()
-    fetch_ps5log()
+    fetch_ps5log(args.title)
     environment = os.environ.copy()
     environment.update(PS5_PAYLOAD_SDK=str(SDK), LOGGING_CLIENT=str(PS5LOG))
     subprocess.run(["make", "owned-helper", f"TARGET_TITLE={args.title}"], cwd=LAPY,
