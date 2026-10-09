@@ -39,7 +39,7 @@ These tests exercise synthetic protobuf byte buffers only and do not contact the
 
 ## Native PS5 build
 
-The inherited native build instructions are in [BUILDING.md](BUILDING.md). The native package metadata and build receipt now identify the app as **RBTV+**, using development title ID `PPSA98273`. The in-app navigation wordmark and generated launcher icon now use an RBTV+ mark; the launcher asset is generated during packaging. Storage and logs use `/data/RBTVPlus`, with the previous Stremio sandbox data path retained only for migration. The result remains untested on-console, and live API playback is not yet validated—do not treat this as a finished port.
+The inherited native build instructions are in [BUILDING.md](BUILDING.md). The native package metadata and build receipt now identify the app as **RBTV+**, using development title ID `PPSA98273`. The in-app navigation wordmark and generated launcher icon now use an RBTV+ mark; the launcher asset is generated during packaging. Storage and logs use `/data/RBTVPlus`, with the previous Stremio sandbox data path retained only for migration. Filesystem elevation now builds a pinned Lapy helper from upstream commit `153c2362b1bb78475b2fcf46ba71552698ae2f7c` with Payload SDK v0.43, which includes the upstream firmware 13.60 credential-layout fix. This RBTV+ package still requires on-console validation; live API playback is also not yet validated, so do not treat this as a finished port.
 
 ## Reference prototype
 
