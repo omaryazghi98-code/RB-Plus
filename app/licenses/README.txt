@@ -11,6 +11,7 @@ Component                                  License                         File
 ps5-native-app-boilerplate (BlackBear-     GPL-3.0-or-later                ../LICENSE
   Reloaded), ps5-payload-sdk, PacBrew,
   FFmpeg build, MkPFS, SharpProspero
+Lapy JB one-shot helper                    MIT                             Lapy-MIT.txt
 ps5-payload-sdk libc (FreeBSD parts)       BSD                             FreeBSD.txt
 Kodi port for PS5 (Team Kodi, VivaLaVent)  GPL-2.0-or-later                GPL-2.0.txt
 Nuvio PS5 (Husam Osman): hardware decoder  GPL-3.0-or-later                ../LICENSE
