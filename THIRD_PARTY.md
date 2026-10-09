@@ -11,7 +11,10 @@ affiliated with or endorsed by Stremio.
 | --- | --- | --- |
 | `native/console_curl.c`, `native/console_curl.h` | libcurl support for PS5 native titles, from [ps5-native-app-boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate) (BlackBearReloaded; its `gmtime_r` follows Howard Hinnant's public-domain `civil_from_days`) | GPL-3.0-or-later |
 | `native/ps5-app.ld` | linker layout, from ps5-native-app-boilerplate's `tooling/native/ps5-pie.ld`, with unwind-table symbols added | GPL-3.0-or-later |
-| `native/filesystem/` | Filesystem capability client and one-request helper adapted from ProsperoLight 01.000.080 and ps5-native-app-boilerplate `examples/sandbox-elevation` (BlackBearReloaded), targeting `PPSA74126`. | GPL-3.0-or-later |
+| `native/filesystem/elevation.cpp`, `native/filesystem/protocol.hpp` | ELF-loader client/protocol adapted from ps5-native-app-boilerplate `examples/sandbox-elevation` (BlackBearReloaded); the app bundles the separately built Lapy helper listed below. | GPL-3.0-or-later |
+| Build-time `lapy.elf` helper | [PS5-Lapy-JB-Daemon](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon), commit `153c2362b1bb78475b2fcf46ba71552698ae2f7c`; target title is set to the package title at build time. | MIT (upstream `LICENSE`, shipped as `app/licenses/Lapy-MIT.txt`) |
+| Build-time `lapy_elevation_protocol.h` | [PS5-Lapy-JB-Daemon](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon), pinned commit above; the helper wire ABI is byte-compatible with the local `ELV1` protocol. | LGPL-2.1-or-later (retained as upstream source provenance) |
+| Build-time `ps5log.h` used by the helper | [ps5-agc-gears](https://github.com/mpereiraesaa/ps5-agc-gears), pinned revision `1ae1f9182abd2770c131b97419034fb85173c2dc`. | GPL-3.0-or-later |
 | `native/download_writer/` | PS5 sequential download writer and bounded client protocol. The loader-run file-worker architecture follows the console performance findings documented by [ProsperoStore](https://github.com/blackbearreloaded/ProsperoStore) (BlackBearReloaded, revision `aa139cb5c05c50a3f902f1413ae72316fee18daa`). | GPL-3.0-or-later |
 | `native/heap.c`, `native/posix_fixes.c`, `native/ps5_modules.c` | approach and parts adapted from the [Kodi port for PS5](https://github.com/VivaLaVent/kodi-ps5) (Team Kodi / VivaLaVent: `shims/native-app/heap_dmem.c`, `thread_stack.c`, `pipe_fallback.c`, `PS5ImeDialog.cpp`) | GPL-2.0-or-later |
 | `native/dlmalloc.c` | Doug Lea's malloc 2.8.6 | MIT-0 |
@@ -57,7 +60,7 @@ license:
 
 | What | License |
 | --- | --- |
-| [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk): compiler wrappers, headers, sysroot | GPL-3.0-or-later (FreeBSD headers BSD) |
+| [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk): compiler wrappers, headers, sysroot (v0.42 for the main app; v0.43 for Lapy helper) | GPL-3.0-or-later (FreeBSD headers BSD) |
 | [LLVM/Clang/lld](https://llvm.org/) 18 | Apache-2.0 WITH LLVM-exception |
 | [ps5-native-app-boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate) (BlackBearReloaded): native-app converter, signer, asset validation; its converter and FSELF writer are derived from [SharpProspero](https://github.com/SvenGDK/SharpProspero) (SvenGDK) | GPL-3.0-or-later; GPL-3.0 |
 | [MkPFS](https://github.com/PSBrew/MkPFS) (PSBrew): packs the `.ffpfsc` image | GPL-3.0 |
