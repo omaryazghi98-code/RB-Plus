@@ -1,4 +1,4 @@
-// Stremio Plus - Bounded asynchronous diagnostics with credential redaction.
+// RBTV+ - Bounded asynchronous diagnostics with credential redaction.
 // Copyright (C) 2026 Stremio PS5 contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "diagnostics.h"
@@ -225,7 +225,7 @@ bool write_small(const std::string& path, const std::string& data) {
 }
 
 json build_metadata() {
-    return {{"application", "Stremio Plus"}, {"app_version", STREMIO_VERSION}, {"title_id", STREMIO_TITLE_ID},
+    return {{"application", "RBTV+"}, {"app_version", STREMIO_VERSION}, {"title_id", STREMIO_TITLE_ID},
             {"build_id", STREMIO_BUILD_ID}, {"compiler", __VERSION__},
 #ifdef PLATFORM_PS5
             {"platform", "PS5 native"},
@@ -406,7 +406,7 @@ bool install_crash_capture(const std::string& directory, const std::string& sess
     crash_fd = ::open(current.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0600);
     if (crash_fd < 0) return false;
     handling_crash = 0;
-    const int count = std::snprintf(crash_header, sizeof(crash_header), "Stremio Plus %s (%s) build=%s session=%s\n",
+    const int count = std::snprintf(crash_header, sizeof(crash_header), "RBTV+ %s (%s) build=%s session=%s\n",
                                     STREMIO_VERSION, STREMIO_TITLE_ID, STREMIO_BUILD_ID, session.c_str());
     crash_header_size = count > 0 ? std::min(std::size_t(count), sizeof(crash_header) - 1) : 0;
     default_action = {};
@@ -448,7 +448,7 @@ void write_event(State& s, const Event& event) {
     if (!s.events.put(json_text(structured) + "\n")) ++s.io_failures;
 #ifdef PLATFORM_PS5
     // Kernel output also runs on the writer and receives only redacted text.
-    const std::string kernel = "[Stremio Plus] " + safe.substr(0, 1500) + "\n";
+    const std::string kernel = "[RBTV+] " + safe.substr(0, 1500) + "\n";
     sceKernelDebugOutText(0, kernel.c_str());
 #else
     ::fwrite(text.data(), 1, text.size(), stdout);
@@ -565,7 +565,7 @@ bool diagnostics_start(const std::string& log_directory) {
         }
         s.running.store(true, std::memory_order_release);
         s.writer = std::thread(writer_main);
-        diagnostics_note("session", std::string("Stremio Plus session started; previous shutdown ") + (previous_unclean ? "unclean (crash, forced close, or power loss)." : "clean or first launch."));
+        diagnostics_note("session", std::string("RBTV+ session started; previous shutdown ") + (previous_unclean ? "unclean (crash, forced close, or power loss)." : "clean or first launch."));
         return true;
     } catch (...) {
         s.running = false;
