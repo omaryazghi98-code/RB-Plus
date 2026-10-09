@@ -4,6 +4,7 @@
 		<link type="text/rcss" href="rml.rcss"/>
 		<link type="text/rcss" href="css/theme.rcss"/>
 		<link type="text/rcss" href="css/shell.rcss"/>
+		<link type="text/rcss" href="css/rbtv.rcss"/>
 		<link type="text/rcss" href="css/board.rcss"/>
 		<link type="text/rcss" href="css/browse.rcss"/>
 		<link type="text/rcss" href="css/detail.rcss"/>
@@ -20,23 +21,25 @@
 			<!-- ======================= Left navigation ======================= -->
 			<div id="nav" data-class-focused="zone == 'nav'">
 				<div class="nav-logo"><img src="icons/logo.png"/></div>
-				<div class="nav-item" data-class-active="nav_sel == 0" data-class-selected="zone == 'nav' && nav_sel == 0">
-					<img class="nav-o" src="icons/nav_board_o.png"/><img class="nav-s" src="icons/nav_board.png"/><div class="nav-label">Board</div>
+				<div class="nav-item nav-rbtv" data-class-active="nav_sel == 0" data-class-selected="zone == 'nav' && nav_sel == 0">
+					<div class="nav-rbtv-mark">RB</div><div class="nav-label">RBTV+</div>
 				</div>
 				<div class="nav-item" data-class-active="nav_sel == 1" data-class-selected="zone == 'nav' && nav_sel == 1">
-					<img class="nav-o" src="icons/nav_discover_o.png"/><img class="nav-s" src="icons/nav_discover.png"/><div class="nav-label">Discover</div>
+					<img class="nav-o" src="icons/nav_board_o.png"/><img class="nav-s" src="icons/nav_board.png"/><div class="nav-label">Board</div>
 				</div>
 				<div class="nav-item" data-class-active="nav_sel == 2" data-class-selected="zone == 'nav' && nav_sel == 2">
-					<img class="nav-o" src="icons/nav_library_o.png"/><img class="nav-s" src="icons/nav_library.png"/><div class="nav-label">Library</div>
+					<img class="nav-o" src="icons/nav_discover_o.png"/><img class="nav-s" src="icons/nav_discover.png"/><div class="nav-label">Discover</div>
 				</div>
 				<div class="nav-item" data-class-active="nav_sel == 3" data-class-selected="zone == 'nav' && nav_sel == 3">
-					<img class="nav-o" src="icons/nav_addons_o.png"/><img class="nav-s" src="icons/nav_addons.png"/><div class="nav-label">Addons</div>
+					<img class="nav-o" src="icons/nav_library_o.png"/><img class="nav-s" src="icons/nav_library.png"/><div class="nav-label">Library</div>
 				</div>
 				<div class="nav-item" data-class-active="nav_sel == 4" data-class-selected="zone == 'nav' && nav_sel == 4">
+					<img class="nav-o" src="icons/nav_addons_o.png"/><img class="nav-s" src="icons/nav_addons.png"/><div class="nav-label">Downloads</div>
+				</div>
+				<div class="nav-item" data-class-active="nav_sel == 5" data-class-selected="zone == 'nav' && nav_sel == 5">
 					<img class="nav-o" src="icons/nav_settings_o.png"/><img class="nav-s" src="icons/nav_settings.png"/><div class="nav-label">Settings</div>
 				</div>
 			</div>
-
 			<!-- ======================= Top bar ======================= -->
 			<div id="topbar">
 				<div class="topbar-spacer"/>
@@ -49,6 +52,70 @@
 					<img class="search-icon" src="icons/search.png"/>
 				</div>
 				<div class="topbar-clock">{{clock}}</div>
+			</div>
+
+			<!-- ======================= RBTV+ native catalogue ======================= -->
+			<div class="page rbtv-page" data-if="view == 'rbtv'">
+				<div class="rbtv-page-head">
+					<div class="rbtv-kicker">LIVE SPORTS</div>
+					<div class="rbtv-title">RBTV+</div>
+					<div class="rbtv-status">{{rbtv_status}}</div>
+					<div class="rbtv-sports">
+						<div class="rbtv-sport-chip" data-for="sport, si : rbtv_sports"
+						     data-class-selected="si == rbtv_sport_sel">
+							{{sport.value}}
+						</div>
+					</div>
+					<div class="rbtv-controls"><span><img class="key-icon" src="icons/cross.png"/> Open / load</span><span><img class="key-icon" src="icons/square.png"/> Refresh</span><span><img class="key-icon" src="icons/options.png"/> Settings</span></div>
+				</div>
+				<div id="rbtv-match-list" class="rbtv-match-list">
+					<div class="rbtv-match-card" data-for="match, mi : rbtv_matches"
+					     data-class-selected="mi == rbtv_match_sel">
+						<div class="rbtv-match-card-top">
+							<div class="rbtv-league">{{match.league}}</div>
+							<div class="rbtv-hot" data-if="match.hot">HOT</div>
+						</div>
+						<div class="rbtv-match-teams">
+							<div class="rbtv-team">{{match.home}}</div>
+							<div class="rbtv-versus">VS</div>
+							<div class="rbtv-team">{{match.away}}</div>
+						</div>
+						<div class="rbtv-match-footer">
+							<span>{{match.kickoff}}</span><span>{{match.score}}</span><span>{{match.status}}</span>
+						</div>
+					</div>
+					<div class="rbtv-empty" data-if="rbtv_matches.size == 0">
+						<div class="rbtv-empty-mark">RBTV+</div>
+						<div class="rbtv-empty-title">Your live catalogue</div>
+						<div class="rbtv-empty-copy">No demonstration fixtures are bundled. Configure and approve your HTTPS endpoints in Settings, then press Cross to request real catalogue data.</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- ======================= RBTV+ match detail ======================= -->
+			<div class="page rbtv-page rbtv-detail-page" data-if="view == 'rbtv-detail'">
+				<div class="rbtv-detail-head">
+					<div class="rbtv-kicker">MATCH CENTRE</div>
+					<div class="rbtv-detail-title">{{rbtv_detail_title}}</div>
+					<div class="rbtv-detail-league">{{rbtv_detail_league}}</div>
+					<div class="rbtv-detail-teams">{{rbtv_detail_teams}}</div>
+					<div class="rbtv-detail-score">{{rbtv_detail_score}}</div>
+					<div class="rbtv-detail-meta">{{rbtv_detail_kickoff}} · {{rbtv_detail_status}}</div>
+					<div class="rbtv-status">{{rbtv_detail_status}}</div>
+					<div class="rbtv-detail-hint"><img class="key-icon" src="icons/cross.png"/> Play selected stream <span><img class="key-icon" src="icons/circle.png"/> Back</span></div>
+				</div>
+				<div class="rbtv-stream-list">
+					<div class="rbtv-stream-card" data-for="stream, si : rbtv_streams"
+					     data-class-selected="si == rbtv_stream_sel">
+						<div class="rbtv-stream-name">{{stream.name}}</div>
+						<div class="rbtv-stream-description">{{stream.description}}</div>
+						<div class="rbtv-stream-badge" data-if="stream.recommended">RECOMMENDED</div>
+					</div>
+					<div class="rbtv-empty rbtv-empty-compact" data-if="rbtv_streams.size == 0">
+						<div class="rbtv-empty-title">Streams will appear here</div>
+						<div class="rbtv-empty-copy">Open a match to request its stream list. Only sources returned by RBTV+ are shown.</div>
+					</div>
+				</div>
 			</div>
 
 			<!-- ======================= Board ======================= -->
