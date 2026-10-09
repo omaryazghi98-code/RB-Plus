@@ -1,0 +1,36 @@
+name: Native RBTV protocol tests
+
+on:
+  push:
+    paths:
+      - "src/rbtv_*.cpp"
+      - "src/rbtv_*.h"
+      - "src/http.*"
+      - "src/util.*"
+      - "tests/test_rbtv_*.cpp"
+      - "tests/run_rbtv_tests.py"
+      - ".github/workflows/rbtv-native.yml"
+  pull_request:
+    paths:
+      - "src/rbtv_*.cpp"
+      - "src/rbtv_*.h"
+      - "src/http.*"
+      - "src/util.*"
+      - "tests/test_rbtv_*.cpp"
+      - "tests/run_rbtv_tests.py"
+      - ".github/workflows/rbtv-native.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  protocol-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ pkg-config libcurl4-openssl-dev
+      - name: Run offline protocol tests
+        run: python3 tests/run_rbtv_tests.py
