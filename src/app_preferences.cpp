@@ -309,6 +309,7 @@ void App::settings_button(Btn button) {
                         show_toast("RBTV data endpoint must be a valid HTTPS URL.", 6);
                         return;
                     }
+                    rbtv_cancel_requests();
                     settings_.rbtv_data_api = value;
                     settings_.rbtv_connection_approved = false;
                     save_settings(); settings_refresh();
@@ -324,6 +325,7 @@ void App::settings_button(Btn button) {
                         show_toast("RBTV website origin must be a valid HTTPS URL.", 6);
                         return;
                     }
+                    rbtv_cancel_requests();
                     settings_.rbtv_web_origin = value;
                     settings_.rbtv_connection_approved = false;
                     save_settings(); settings_refresh();
@@ -335,9 +337,7 @@ void App::settings_button(Btn button) {
                     {"Keep approved", "Revoke access"}, 0, [this](int selected) {
                         if (selected == 1) {
                             settings_.rbtv_connection_approved = false;
-                            if (rbtv_cancel_) rbtv_cancel_->store(true);
-                            if (rbtv_detail_cancel_) rbtv_detail_cancel_->store(true);
-                            if (rbtv_stream_cancel_) rbtv_stream_cancel_->store(true);
+                            rbtv_cancel_requests();
                             save_settings(); settings_refresh();
                             rbtv_status = "Network access revoked. No further RBTV+ requests will start.";
                         }
