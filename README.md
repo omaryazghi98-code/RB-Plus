@@ -113,20 +113,17 @@ then sync them in Stremio Plus.
 
 ## Getting started
 
-You need a PS5 with a working native homebrew loader, a Stremio account, and
-the add-ons you want to use configured on that account. Build instructions
-are in [BUILDING.md](BUILDING.md). The application's title ID is `PPSA98273`.
+You need a PS5 with a compatible native homebrew loader. The RBTV+ endpoint and website origin are deliberately blank until reviewed and configured in Settings; protocol tests do not contact service hosts. Build instructions are in [BUILDING.md](BUILDING.md). The development title ID is `PPSA98273`.
 
 App settings, the download directory registry, and streaming caches live in
-**`/data/Stremio/appdata`**. Logs stay in **`/data/Stremio`**. The app prepares
+**`/data/RBTVPlus/appdata`**. Logs stay in **`/data/RBTVPlus`**. The app prepares
 these directories on launch. If your homebrew environment cannot create or
-access the parent directory, create **`/data/Stremio`** and set its directory
-permissions to **`0777`** with your file manager or FTP client. From a console
+access the parent directory, create **`/data/RBTVPlus`** and ensure the app's homebrew environment can access it. From a console
 shell, the equivalent is:
 
 ```sh
-mkdir -p /data/Stremio
-chmod 0777 /data/Stremio
+mkdir -p /data/RBTVPlus
+chmod 0777 /data/RBTVPlus
 ```
 
 The homebrew environment must allow the app to access that directory and
@@ -135,7 +132,7 @@ filesystem grant and automatically starts a PS5 download writer when a
 torrent download begins. Choose a video destination with the folder picker
 in Settings before starting a new download. If no folder has been selected,
 the download action shows a reminder with an OK button. Existing downloads
-in `/data/Stremio/downloads/` are discovered and included when moving to your
+in `/data/RBTVPlus/downloads/` are discovered and included when moving to your
 chosen folder. Keep enough free space on the destination filesystem.
 
 Installing the app itself on an M.2 volume, for example at
@@ -265,13 +262,13 @@ files may leave that volume registered by the loader. To reclaim an existing
 reservation, close the app, uninstall the registered title using the normal
 console or loader uninstall operation, then install the current build.
 Simply deleting or replacing files through FTP may leave the registration.
-Keep `/data/Stremio` and your video directories. Do not manually modify a
+Keep `/data/RBTVPlus` and your video directories. Do not manually modify a
 mounted private volume. An uninstall can remove account settings from the
 old private volume, so you may need to sign in again.
 
 ## Troubleshooting
 
-Logs are kept together in `/data/Stremio/`. For a bug report, include the app
+Logs are kept together in `/data/RBTVPlus/`. For a bug report, include the app
 version, the steps that triggered it, and these files:
 
 - `boot-current.txt`
