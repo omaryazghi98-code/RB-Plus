@@ -33,7 +33,7 @@ def rounded_icon() -> bytearray:
             dy = radius - y
             inset = radius - math.sqrt(max(0, radius * radius - dy * dy))
         elif y >= WORK - radius:
-            dy = y - (WORK - radius - 1)
+            dy = y - (WORK - radius)
             inset = radius - math.sqrt(max(0, radius * radius - dy * dy))
         else:
             inset = 0
