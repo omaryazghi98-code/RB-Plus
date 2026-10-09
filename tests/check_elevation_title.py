@@ -33,6 +33,12 @@ if 'cp "$B/lapy-helper/Lapy-MIT.txt" "$APP/licenses/Lapy-MIT.txt"' not in builde
     raise SystemExit("Lapy upstream license must be shipped with the app")
 if 'helper_path = "/app0/lapy.elf"' not in elevation_header:
     raise SystemExit("Elevation client default must match the packaged helper path")
+elevation_client = (root / "native/filesystem/elevation.cpp").read_text()
+for path in ('/mnt/sandbox/', '/data/homebrew/'):
+    if path not in elevation_client:
+        raise SystemExit(f"Elevation client must try the {path} helper fallback")
+if "helper_open_diagnostic()" not in elevation_header or "helper_open_detail" not in (root / "src/main.cpp").read_text():
+    raise SystemExit("The recovery screen must show helper-open diagnostics")
 if "sandbox-elevator.elf" in builder:
     raise SystemExit("The old firmware-incompatible helper must not be packaged")
 
