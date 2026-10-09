@@ -276,6 +276,7 @@ bool storage_error_screen(const Options& o, const Ps5StoragePaths& storage) {
     const std::string probe_detail = std::string("Filesystem probe: ") +
         (storage.filesystem_available ? "available" : "unavailable") +
         " / startup log: " + (storage.logs_available ? "available" : "unavailable");
+    const std::string helper_open_detail = elevation::helper_open_diagnostic();
     hui::ps5::Pad pad;
     if (!pad.open()) dlog("Controller unavailable on storage recovery screen");
     hui::InputTracker tracker;
@@ -305,6 +306,7 @@ bool storage_error_screen(const Options& o, const Ps5StoragePaths& storage) {
         list.text(regular, fonts.regular.texture, detail, 140, 644, 23, muted);
         list.text(regular, fonts.regular.texture, elevation_detail, 140, 696, 21, muted);
         list.text(regular, fonts.regular.texture, probe_detail, 140, 731, 21, muted);
+        list.text(regular, fonts.regular.texture, helper_open_detail, 140, 766, 18, muted);
         const hui::ui::Hint hints[] = {
             {hui::ui::Button::cross, italian ? "Riprova" : "Retry"},
             {hui::ui::Button::circle, italian ? "Esci" : "Exit"}};
