@@ -104,10 +104,10 @@ Options options(int argc, char** argv) {
     Options o;
     o.base = find_base(argc ? argv[0] : nullptr);
 #ifdef PLATFORM_PS5
-    o.data = "/data/Stremio/appdata";
+    o.data = "/data/RBTVPlus/appdata";
 #else
     const char* account_home = std::getenv("HOME");
-    o.data = std::string(account_home ? account_home : ".") + "/.stremio-ps5";
+    o.data = std::string(account_home ? account_home : ".") + "/.rbtvplus";
 #endif
     bool custom_data = false;
     for (int i = 1; i < argc; ++i) {
@@ -206,7 +206,7 @@ struct Surface {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-        window = SDL_CreateWindow("Stremio Plus", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        window = SDL_CreateWindow("RBTV+", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
             1280, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
         if (!window || !(sdl_context = SDL_GL_CreateContext(window))) return false;
         SDL_GL_SetSwapInterval(1);
@@ -268,10 +268,10 @@ bool storage_error_screen(const Options& o, const Ps5StoragePaths& storage) {
         const auto muted = hui::gfx::Color::rgb(0xc2bfd0);
         list.text(semibold, fonts.semibold.texture,
             italian ? "Cartella dati non disponibile" : "App storage is unavailable", 140, 338, 56, white);
-        list.text(regular, fonts.regular.texture, "/data/Stremio/appdata", 140, 426, 32, white);
+        list.text(regular, fonts.regular.texture, "/data/RBTVPlus/appdata", 140, 426, 32, white);
         list.text(regular, fonts.regular.texture,
-            italian ? "Verifica lo spazio libero e l'accesso a /data/Stremio." :
-                      "Check free space and filesystem access to /data/Stremio.", 140, 510, 30, muted);
+            italian ? "Verifica lo spazio libero e l'accesso a /data/RBTVPlus." :
+                      "Check free space and filesystem access to /data/RBTVPlus.", 140, 510, 30, muted);
         list.text(regular, fonts.regular.texture,
             italian ? "Poi riprova. Account e download esistenti vengono conservati." :
                       "Then retry. Your existing account and downloads are preserved.", 140, 558, 30, muted);
@@ -653,7 +653,7 @@ int run_interface(App& app, const Options& o) {
 int main(int argc, char** argv) {
 #ifdef PLATFORM_PS5
     // The supplied framework requires this before application worker creation.
-    // It makes /data/Stremio usable and resolves app/data paths after the grant.
+    // It makes /data/RBTVPlus usable and resolves app/data paths after the grant.
     auto native_storage = ps5_prepare_storage();
 #endif
     boot_step("entered application main");
@@ -664,7 +664,7 @@ int main(int argc, char** argv) {
     o.data = native_storage.data;
 #endif
     if (o.help) {
-        std::puts("Stremio Plus for PS5\n  --base APP_DIR --data DATA_DIR\nHost only:\n  --snapshot OUTPUT_DIR --scenario home|detail|streams|discover|library|downloads|addons|settings|dropdown|login|keyboard|player|source_info|all\n  --fixture JSON --width 1920 --height 1080");
+        std::puts("RBTV+ for PS5\n  --base APP_DIR --data DATA_DIR\nHost only:\n  --snapshot OUTPUT_DIR --scenario home|detail|streams|discover|library|downloads|addons|settings|dropdown|login|keyboard|player|source_info|all\n  --fixture JSON --width 1920 --height 1080");
         return 0;
     }
 #ifndef PLATFORM_PS5
@@ -687,9 +687,9 @@ int main(int argc, char** argv) {
 #else
     const bool diagnostics_ready = diagnostics_start(log_directory);
 #endif
-    if (!diagnostics_ready) std::fprintf(stderr, "Stremio Plus: diagnostics folder unavailable\n");
+    if (!diagnostics_ready) std::fprintf(stderr, "RBTV+: diagnostics folder unavailable\n");
     boot_step(diagnostics_ready ? "asynchronous diagnostics ready" : "asynchronous diagnostics unavailable");
-    dlog("Stremio Plus %s (%s) starting", STREMIO_VERSION, STREMIO_TITLE_ID);
+    dlog("RBTV+ %s (%s) starting", STREMIO_VERSION, STREMIO_TITLE_ID);
     av_log_set_callback(diagnostics_ffmpeg_log);
     SDL_LogSetOutputFunction([](void*, int, SDL_LogPriority, const char* message) {
         diagnostics_note("sdl", message ? message : "");
@@ -728,8 +728,8 @@ int main(int argc, char** argv) {
             if (initialized) {
 #ifdef PLATFORM_PS5
                 if (!diagnostics_ready) app.notify(app.ui_language == "it"
-                    ? "Log non disponibili in /data/Stremio. Verifica elfldr e accesso al filesystem."
-                    : "Logs unavailable in /data/Stremio. Check elfldr and filesystem access.", 12);
+                    ? "Log non disponibili in /data/RBTVPlus. Verifica elfldr e accesso al filesystem."
+                    : "Logs unavailable in /data/RBTVPlus. Check elfldr and filesystem access.", 12);
 #endif
                 boot_step("application initialized; preparing interface");
                 result = run_interface(app, o);
