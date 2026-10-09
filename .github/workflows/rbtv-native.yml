@@ -1,23 +1,21 @@
-name: Native RBTV protocol tests
+name: Native RBTV protocol and UI checks
 
 on:
   push:
     paths:
-      - "src/rbtv_*.cpp"
-      - "src/rbtv_*.h"
-      - "src/http.*"
-      - "src/util.*"
-      - "tests/test_rbtv_*.cpp"
-      - "tests/run_rbtv_tests.py"
+      - "src/**"
+      - "app/assets/**"
+      - "CMakeLists.txt"
+      - "tests/**"
+      - "BUILDING.md"
       - ".github/workflows/rbtv-native.yml"
   pull_request:
     paths:
-      - "src/rbtv_*.cpp"
-      - "src/rbtv_*.h"
-      - "src/http.*"
-      - "src/util.*"
-      - "tests/test_rbtv_*.cpp"
-      - "tests/run_rbtv_tests.py"
+      - "src/**"
+      - "app/assets/**"
+      - "CMakeLists.txt"
+      - "tests/**"
+      - "BUILDING.md"
       - ".github/workflows/rbtv-native.yml"
 
 permissions:
@@ -28,9 +26,25 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install host build dependencies
+      - name: Install protocol test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y g++ pkg-config libcurl4-openssl-dev
       - name: Run offline protocol tests
         run: python3 tests/run_rbtv_tests.py
+
+  desktop-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native UI host-build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config \
+            libsdl2-dev libfreetype-dev libcurl4-openssl-dev libssl-dev zlib1g-dev \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+            libwebp-dev libfribidi-dev libegl-dev libgl-dev libgl1-mesa-dri ffmpeg
+      - name: Configure desktop build
+        run: cmake -S . -B build/desktop-ci -DCMAKE_BUILD_TYPE=Debug -DCMAKE_GENERATOR="Unix Makefiles"
+      - name: Compile native UI and RBTV integration
+        run: cmake --build build/desktop-ci --parallel 2
