@@ -69,11 +69,11 @@ bool is_probe(int descriptor) {
 void reset() {
     ps5_boot_close();
     fs::remove_all(root);
-    for (const char* directory : {"/data/Stremio", "/download0/stremio",
-         "/app0/hui/fonts", "/mnt/sandbox/PPSA74126_000/app0/hui/fonts",
+    for (const char* directory : {"/data/RBTVPlus", "/download0/stremio",
+         "/app0/hui/fonts", "/mnt/sandbox/PPSA98273_000/app0/hui/fonts",
          "/mnt/sandbox/PPSA74126_000/download0/stremio"})
         fs::create_directories(root + directory);
-    for (const char* base : {"/app0", "/mnt/sandbox/PPSA74126_000/app0"})
+    for (const char* base : {"/app0", "/mnt/sandbox/PPSA98273_000/app0"})
         std::ofstream(root + base + "/hui/fonts/inter-regular.huifont") << "font";
     fail_operation.clear(); fail_path.clear(); failure_errno = EPERM;
     helper_calls = 0; granted = false; repair_on_grant = deny_until_grant = true;
@@ -85,12 +85,12 @@ void reset() {
 }
 
 std::string boot_text() {
-    std::ifstream input(root + "/data/Stremio/boot-current.txt");
+    std::ifstream input(root + "/data/RBTVPlus/boot-current.txt");
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
 void check_no_probe() {
-    for (const auto& item : fs::recursive_directory_iterator(root + "/data/Stremio")) {
+    for (const auto& item : fs::recursive_directory_iterator(root + "/data/RBTVPlus")) {
         const auto name = item.path().filename().string();
         check(!name.starts_with(".storage-probe-") && !name.starts_with(".migration-"),
             "startup removes its probe and migration temporary files");
@@ -158,7 +158,7 @@ int __wrap_fstat(int descriptor, struct stat* info) {
 int __wrap_fsync(int descriptor) {
     if (late_target && descriptor_path(descriptor).find(".migration-") != std::string::npos) {
         late_target = false;
-        std::ofstream(root + "/data/Stremio/appdata/settings.json") << "newer destination";
+        std::ofstream(root + "/data/RBTVPlus/appdata/settings.json") << "newer destination";
     }
     return denied("fsync", descriptor_path(descriptor)) ? -1 : __real_fsync(descriptor);
 }
@@ -231,15 +231,15 @@ int main(int argc, char** argv) {
     const auto partial = ps5_prepare_storage();
     check(helper_calls == 1 && partial.helper_requested, "lstat EPERM requests helper despite writable logs");
     check(partial.filesystem_available && partial.logs_available, "verified post-grant storage becomes available");
-    check(std::string(partial.app) == "/mnt/sandbox/PPSA74126_000/app0", "app mount re-resolves after root changes");
-    check(partial.data_available && std::string(partial.data) == "/data/Stremio/appdata", "private appdata resolves outside the removed reservation after grant");
-    check(configured_writer == "/mnt/sandbox/PPSA74126_000/app0/download-writer.elf",
+    check(std::string(partial.app) == "/mnt/sandbox/PPSA98273_000/app0", "app mount re-resolves after root changes");
+    check(partial.data_available && std::string(partial.data) == "/data/RBTVPlus/appdata", "RBTV+ private appdata resolves outside the removed reservation after grant");
+    check(configured_writer == "/mnt/sandbox/PPSA98273_000/app0/download-writer.elf",
         "download writer uses the resolved app mount after filesystem elevation");
     check(boot_text().find("before=\"lstat /data\" before_errno=" + std::to_string(EPERM)) != std::string::npos,
         "boot diagnostics preserve original denied operation and errno");
     check(boot_text().find("after=\"ready\" after_errno=0") != std::string::npos,
         "boot diagnostics distinguish proof after grant");
-    check(boot_text().find(std::string("[Stremio Plus ") + STREMIO_VERSION + " " + STREMIO_TITLE_ID + "]") != std::string::npos,
+    check(boot_text().find(std::string("[RBTV+ ") + STREMIO_VERSION + " " + STREMIO_TITLE_ID + "]") != std::string::npos,
         "boot uses the same injected build identity as the application");
     check_no_probe();
 
@@ -253,26 +253,26 @@ int main(int argc, char** argv) {
     check_no_probe();
 
     reset();
-    fs::create_directory(root + "/data/Stremio/downloads");
-    fs::create_directory(root + "/data/Stremio/appdata");
-    check(::chmod((root + "/data/Stremio/appdata").c_str(), 0775) == 0, "set existing appdata permissions");
-    check(::chmod((root + "/data/Stremio").c_str(), 0777) == 0 &&
-          ::chmod((root + "/data/Stremio/downloads").c_str(), 0777) == 0,
+    fs::create_directory(root + "/data/RBTVPlus/downloads");
+    fs::create_directory(root + "/data/RBTVPlus/appdata");
+    check(::chmod((root + "/data/RBTVPlus/appdata").c_str(), 0775) == 0, "set existing RBTV+ appdata permissions");
+    check(::chmod((root + "/data/RBTVPlus").c_str(), 0777) == 0 &&
+          ::chmod((root + "/data/RBTVPlus/downloads").c_str(), 0777) == 0,
         "existing user permissions are configured for the startup regression");
     check(ps5_prepare_storage().filesystem_available, "startup accepts existing user-writable folders");
     struct stat mode_info{};
-    check(::lstat((root + "/data/Stremio").c_str(), &mode_info) == 0 &&
+    check(::lstat((root + "/data/RBTVPlus").c_str(), &mode_info) == 0 &&
           (mode_info.st_mode & 0777) == 0777,
-        "startup preserves the existing Stremio folder permissions");
-    check(::lstat((root + "/data/Stremio/downloads").c_str(), &mode_info) == 0 &&
+        "startup preserves the existing RBTV+ folder permissions");
+    check(::lstat((root + "/data/RBTVPlus/downloads").c_str(), &mode_info) == 0 &&
           (mode_info.st_mode & 0777) == 0777,
         "startup preserves the existing downloads folder permissions");
-    check(::lstat((root + "/data/Stremio/appdata").c_str(), &mode_info) == 0 &&
+    check(::lstat((root + "/data/RBTVPlus/appdata").c_str(), &mode_info) == 0 &&
           (mode_info.st_mode & 0777) == 0775,
-        "startup preserves existing appdata directory permissions");
+        "startup preserves existing RBTV+ appdata directory permissions");
     const auto permission_receipt = boot_text();
-    check(permission_receipt.find("phase=before path=/data/Stremio mode=0777") != std::string::npos &&
-          permission_receipt.find("phase=after path=/data/Stremio/downloads mode=0777") != std::string::npos,
+    check(permission_receipt.find("phase=before path=/data/RBTVPlus mode=0777") != std::string::npos &&
+          permission_receipt.find("phase=after path=/data/RBTVPlus/downloads mode=0777") != std::string::npos,
         "boot diagnostics retain before and after modes without changing existing folders");
     check(permission_receipt.find("storage_process euid_before=") != std::string::npos &&
           permission_receipt.find(" owner=") != std::string::npos,
@@ -285,7 +285,7 @@ int main(int argc, char** argv) {
     check(!missing_helper.filesystem_available && missing_helper.logs_available,
         "helper refusal leaves downloads unavailable but retains diagnostic logs");
     check(!missing_helper.data_available && missing_helper.data_errno == EPERM &&
-          !fs::exists(root + "/data/Stremio/appdata"),
+          !fs::exists(root + "/data/RBTVPlus/appdata"),
         "missing genuine data access never creates appdata or exposes empty account storage");
     check(helper_calls == 1 && missing_helper.filesystem_status == int(helper_status),
         "refused grant is recorded and never retried in a loop");
@@ -300,7 +300,7 @@ int main(int argc, char** argv) {
     for (const auto& operation : {"lstat", "opendir", "readdir", "chmod", "fchmod", "fstat", "open"}) {
         reset(); fail_operation = operation;
         fail_path = (fail_operation == "lstat" || fail_operation == "opendir" || fail_operation == "readdir") ?
-            "/data/Stremio" : ".storage-probe-";
+            "/data/RBTVPlus" : ".storage-probe-";
         const auto repaired = ps5_prepare_storage();
         check(helper_calls == 1 && repaired.filesystem_available,
             "each denied download directory/file operation triggers a verified grant");
@@ -333,7 +333,7 @@ int main(int argc, char** argv) {
     check_no_probe();
 
     reset();
-    const auto old_probe = root + "/data/Stremio/.storage-probe-" + std::to_string(getpid()) + "-0";
+    const auto old_probe = root + "/data/RBTVPlus/.storage-probe-" + std::to_string(getpid()) + "-0";
     fs::create_directory(old_probe);
     std::ofstream(old_probe + "/keep.txt") << "previous launch";
     check(ps5_prepare_storage().filesystem_available, "probe skips a previous launch's directory");
@@ -345,10 +345,10 @@ int main(int argc, char** argv) {
     const auto fresh = ps5_prepare_storage();
     check(fresh.filesystem_available && fresh.data_available && !fresh.helper_requested,
         "fresh install starts without any reserved download0 mount");
-    check(std::string(fresh.data) == "/data/Stremio/appdata", "fresh install uses grow-on-demand appdata");
-    check(::lstat((root + "/data/Stremio/appdata").c_str(), &mode_info) == 0 &&
+    check(std::string(fresh.data) == "/data/RBTVPlus/appdata", "fresh RBTV+ install uses grow-on-demand appdata");
+    check(::lstat((root + "/data/RBTVPlus/appdata").c_str(), &mode_info) == 0 &&
           (mode_info.st_mode & 0777) == 0700, "new appdata is private");
-    check(fs::is_empty(root + "/data/Stremio/appdata"), "fresh storage does not preallocate caches or media");
+    check(fs::is_empty(root + "/data/RBTVPlus/appdata"), "fresh storage does not preallocate caches or media");
     check_no_probe();
 
     reset(); legacy_settings();
@@ -359,19 +359,19 @@ int main(int argc, char** argv) {
     const auto migrated = ps5_prepare_storage();
     check(migrated.data_available, "reachable legacy account and progress migrate");
     for (const char* name : {"settings.json", "progress.json", "config.json"}) {
-        check(read_file(std::string("/data/Stremio/appdata/") + name) ==
+        check(read_file(std::string("/data/RBTVPlus/appdata/") + name) ==
               read_file(std::string("/download0/stremio/") + name), "whitelisted settings copy exact bytes and retain old source");
-        check(::lstat((root + "/data/Stremio/appdata/" + name).c_str(), &mode_info) == 0 &&
+        check(::lstat((root + "/data/RBTVPlus/appdata/" + name).c_str(), &mode_info) == 0 &&
               (mode_info.st_mode & 0777) == 0600, "migrated sensitive files are private");
     }
-    check(!fs::exists(root + "/data/Stremio/appdata/cache.bin") &&
-          !fs::exists(root + "/data/Stremio/appdata/unknown.json"), "migration excludes caches and all unlisted files");
+    check(!fs::exists(root + "/data/RBTVPlus/appdata/cache.bin") &&
+          !fs::exists(root + "/data/RBTVPlus/appdata/unknown.json"), "migration excludes caches and all unlisted files");
     check(boot_text().find("fake-sensitive-token") == std::string::npos &&
           boot_text().find("migrated_files=3") != std::string::npos, "boot logs only migration result, never settings content");
-    std::ofstream(root + "/data/Stremio/appdata/settings.json") << "new account";
+    std::ofstream(root + "/data/RBTVPlus/appdata/settings.json") << "new account";
     ps5_boot_close();
     check(ps5_prepare_storage().data_available, "migration repeats safely");
-    check(read_file("/data/Stremio/appdata/settings.json") == "new account" &&
+    check(read_file("/data/RBTVPlus/appdata/settings.json") == "new account" &&
           read_file("/download0/stremio/settings.json").find("fake-sensitive-token") != std::string::npos,
         "repeat startup preserves current account and never deletes old source");
     check_no_probe();
@@ -380,18 +380,18 @@ int main(int argc, char** argv) {
     std::ofstream(root + "/mnt/sandbox/PPSA74126_000/download0/stremio/settings.json") << "sandbox account";
     fail_operation = "lstat"; fail_path = "/data";
     check(ps5_prepare_storage().data_available &&
-          read_file("/data/Stremio/appdata/settings.json") == "sandbox account",
+          read_file("/data/RBTVPlus/appdata/settings.json") == "sandbox account",
         "legacy account still migrates through resolved sandbox mount after elevation");
     check_no_probe();
 
     reset(); legacy_settings(); short_migration_io = interrupt_migration_write = true;
     check(ps5_prepare_storage().data_available &&
-          read_file("/data/Stremio/appdata/settings.json") == read_file("/download0/stremio/settings.json"),
+          read_file("/data/RBTVPlus/appdata/settings.json") == read_file("/download0/stremio/settings.json"),
         "legacy migration handles partial reads/writes and interrupted writes");
     check_no_probe();
 
     reset(); legacy_settings(); late_target = true;
-    check(ps5_prepare_storage().data_available && read_file("/data/Stremio/appdata/settings.json") == "newer destination",
+    check(ps5_prepare_storage().data_available && read_file("/data/RBTVPlus/appdata/settings.json") == "newer destination",
         "migration rechecks target immediately before rename and keeps a newer file");
     check_no_probe();
 
@@ -399,10 +399,10 @@ int main(int argc, char** argv) {
         reset();
         fs::create_directory(root + "/outside");
         std::ofstream(root + "/outside/keep.json") << "keep outside";
-        if (std::string(kind) == "appdata") fs::create_directory_symlink(root + "/outside", root + "/data/Stremio/appdata");
+        if (std::string(kind) == "appdata") fs::create_directory_symlink(root + "/outside", root + "/data/RBTVPlus/appdata");
         else if (std::string(kind) == "target") {
-            fs::create_directory(root + "/data/Stremio/appdata");
-            fs::create_symlink(root + "/outside/keep.json", root + "/data/Stremio/appdata/settings.json");
+            fs::create_directory(root + "/data/RBTVPlus/appdata");
+            fs::create_symlink(root + "/outside/keep.json", root + "/data/RBTVPlus/appdata/settings.json");
         } else fs::create_symlink(root + "/outside/keep.json", root + "/download0/stremio/settings.json");
         const auto rejected = ps5_prepare_storage();
         check(rejected.filesystem_available && !rejected.data_available && rejected.data_errno == ELOOP,
@@ -420,7 +420,7 @@ int main(int argc, char** argv) {
     fs::resize_file(root + "/download0/stremio/settings.json", (4u << 20) + 1);
     const auto too_large = ps5_prepare_storage();
     check(!too_large.data_available && too_large.data_errno == EFBIG &&
-          !fs::exists(root + "/data/Stremio/appdata/settings.json"), "oversized legacy data never publishes a partial account");
+          !fs::exists(root + "/data/RBTVPlus/appdata/settings.json"), "oversized legacy data never publishes a partial account");
     check_no_probe();
 
     for (const char* operation : {"open", "read", "write", "fsync", "rename"}) {
@@ -431,19 +431,19 @@ int main(int argc, char** argv) {
         const auto failure = ps5_prepare_storage();
         check(failure.filesystem_available && !failure.data_available && failure.data_errno == EIO,
             "failed legacy migration blocks account initialization with a concrete error");
-        check(!fs::exists(root + "/data/Stremio/appdata/settings.json") &&
+        check(!fs::exists(root + "/data/RBTVPlus/appdata/settings.json") &&
               read_file("/download0/stremio/settings.json").find("fake-sensitive-token") != std::string::npos,
             "failed migration leaves no partial destination and retains original account");
         check_no_probe();
         fail_operation.clear(); ps5_boot_close();
         check(ps5_prepare_storage().data_available &&
-              read_file("/data/Stremio/appdata/settings.json") == read_file("/download0/stremio/settings.json"),
+              read_file("/data/RBTVPlus/appdata/settings.json") == read_file("/download0/stremio/settings.json"),
             "retry recovers migration after the storage error is resolved");
         check_no_probe();
     }
 
     for (const char* operation : {"mkdir", "open", "write"}) {
-        reset(); fail_operation = operation; fail_path = "/data/Stremio/appdata";
+        reset(); fail_operation = operation; fail_path = "/data/RBTVPlus/appdata";
         failure_errno = EACCES; deny_until_grant = false;
         const auto denied_data = ps5_prepare_storage();
         check(denied_data.filesystem_available && !denied_data.data_available &&
