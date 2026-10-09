@@ -125,9 +125,10 @@ python3 tests/run_download_app_tests.py build/desktop
 python3 tests/run_next_episode_tests.py build/desktop
 python3 tests/run_preferences_tests.py build/desktop
 python3 tests/run_preferences_tests.py build/desktop --console-policy
+python3 tests/run_rbtv_tests.py
 ```
 
-The host integration runners expect CMake's Unix Makefiles generator. They
+The RBTV test runner compiles the protobuf decoder and signature builder and runs offline byte-level tests. It does not contact the endpoints extracted from the APK. The host integration runners expect CMake's Unix Makefiles generator. They
 create synthetic media with FFmpeg and use temporary files and controlled
 local servers. More focused tests for account sync, add-on handling, artwork,
 UI behavior, and diagnostics are available under `tests/`.
