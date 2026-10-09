@@ -6,11 +6,23 @@
 #include "elevation.hpp"
 
 #include <array>
+#include <cerrno>
+#include <cstdio>
 #include <fcntl.h>
 #include <unistd.h>
 
 namespace
 {
+#ifndef STREMIO_TITLE_ID
+#define STREMIO_TITLE_ID "PPSA98273"
+#endif
+
+constexpr char kSandboxHelperPath[] =
+    "/mnt/sandbox/" STREMIO_TITLE_ID "_000/app0/lapy.elf";
+constexpr char kInstalledHelperPath[] =
+    "/data/homebrew/" STREMIO_TITLE_ID "/lapy.elf";
+char g_helper_open_diagnostic[224] = "Helper open: not attempted";
+
 struct NetSockaddrIn
 {
     std::uint8_t length;
@@ -77,6 +89,58 @@ elevation::Status exchange(int socket, const elevation::wire::Message &request) 
     return reply.status;
 }
 
+int open_helper(const char *preferred_path) noexcept
+{
+    struct Candidate
+    {
+        const char *name;
+        const char *path;
+    };
+    const std::array<Candidate, 3> candidates{{
+        {"app0", preferred_path},
+        {"sandbox", kSandboxHelperPath},
+        {"homebrew", kInstalledHelperPath},
+    }};
+    std::array<int, 3> kernel_result{};
+    std::array<int, 3> posix_errno{};
+
+    for (std::size_t i = 0; i < candidates.size(); ++i)
+    {
+        errno = 0;
+        const int descriptor = sceKernelOpen(candidates[i].path, O_RDONLY, 0);
+        kernel_result[i] = descriptor;
+        if (descriptor >= 0)
+        {
+            std::snprintf(g_helper_open_diagnostic, sizeof(g_helper_open_diagnostic),
+                          "Helper open: %s path succeeded (sceKernelOpen)", candidates[i].name);
+            return descriptor;
+        }
+
+        // A normal POSIX open is a valid fallback for the packaged read-only
+        // ELF. Some loader/mount combinations expose app0 through libc first.
+        errno = 0;
+        const int posix_descriptor = open(candidates[i].path, O_RDONLY);
+        posix_errno[i] = errno;
+        if (posix_descriptor >= 0)
+        {
+            std::snprintf(g_helper_open_diagnostic, sizeof(g_helper_open_diagnostic),
+                          "Helper open: %s path succeeded (open)", candidates[i].name);
+            return posix_descriptor;
+        }
+    }
+
+    std::snprintf(g_helper_open_diagnostic, sizeof(g_helper_open_diagnostic),
+                  "Helper open failed: app0 K%d/E%d; sandbox K%d/E%d; home K%d/E%d",
+                  kernel_result[0], posix_errno[0], kernel_result[1], posix_errno[1],
+                  kernel_result[2], posix_errno[2]);
+    return -1;
+}
+
+const char *elevation::helper_open_diagnostic() noexcept
+{
+    return g_helper_open_diagnostic;
+}
+
 elevation::Status submit(int socket, int helper, const elevation::wire::Message &request) noexcept
 {
     using elevation::Status;
@@ -122,7 +186,7 @@ elevation::Status elevation::request(Capability capability, const char *helper_p
         return error;
     if (helper_path == nullptr)
         return Status::invalid_request;
-    const int helper = sceKernelOpen(helper_path, O_RDONLY, 0);
+    const int helper = open_helper(helper_path);
     // Keep a missing/inaccessible bundled ELF distinct from a helper that
     // starts but cannot obtain kernel state or filesystem access.
     if (helper < 0)
