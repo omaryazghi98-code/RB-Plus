@@ -4,7 +4,10 @@ on:
   push:
     paths:
       - "src/**"
+      - "native/**"
+      - "tools/**"
       - "app/assets/**"
+      - "app/sce_sys/**"
       - "CMakeLists.txt"
       - "tests/**"
       - "BUILDING.md"
@@ -32,6 +35,8 @@ jobs:
           sudo apt-get install -y g++ clang-18 libclang-rt-18-dev pkg-config libcurl4-openssl-dev
       - name: Validate RBTV+ package metadata
         run: python3 tools/validate-app-metadata.py app/sce_sys/param.json
+      - name: Check filesystem elevation title ID
+        run: python3 tests/check_elevation_title.py
       - name: Generate and validate RBTV+ launcher icon
         run: |
           python3 tools/make-rbtv-icon.py /tmp/rbtv-icon0.png
