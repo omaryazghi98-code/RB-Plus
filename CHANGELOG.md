@@ -1,5 +1,13 @@
 # Changelog
 
+## RBTV+ port — native protocol layer
+
+- Added a bounded Protocol Buffers decoder for RBTV match, league, team, stream, signature and user-region payloads.
+- Added the dynamic MD5-prefix builder and a native API client for bootstrap, live catalogue, match details and stream resolution.
+- Required explicit HTTPS endpoints and kept the default API endpoint unset. Network calls happen only when the caller invokes them.
+- Added offline parser/signature unit tests and a documented test runner.
+- The API layer is not yet connected to the native catalogue/detail UI; no endpoint has been contacted and live playback is not validated.
+
 ## RBTV+ port — repository setup
 
 - Established RB-Plus as the working repository for the RBTV+ PS5 port.
