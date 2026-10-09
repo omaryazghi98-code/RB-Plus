@@ -264,6 +264,7 @@ void local_transport(const std::string& base) {
 	auto response = http_get(base + "/redirect", 5);
 	expect(response.ok() && response.body == "{\"metas\":[]}", "redirect body is replaced by final JSON response");
 	expect(response.cache_control == "max-age=60" && response.etag == "\"fixture\"", "final cache headers captured");
+	expect(response.rb_session == "rb-session-fixture", "RBTV resolver session header captured from final response");
 	response = http_get(base + "/gzip", 5);
 	expect(response.ok() && response.body == "{\"metas\":[]}", "compressed addon JSON decoded");
 	response = http_get(base + "/headers", 5, nullptr, {"User-Agent: Fixture Player", "Referer: https://media.example/"});
