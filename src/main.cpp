@@ -249,6 +249,14 @@ bool storage_error_screen(const Options& o, const Ps5StoragePaths& storage) {
     const bool italian = platform_ui_language() == "it";
     const std::string detail = std::string(storage.data_error ? storage.data_error : "storage") +
         " (errno " + std::to_string(storage.data_errno) + ")";
+    // Keep the most useful storage diagnostics on-screen when /data is too
+    // restricted to create boot-current.txt or the regular diagnostics log.
+    const std::string elevation_detail = std::string("Elevation helper: ") +
+        (storage.helper_requested ? "requested" : "not requested") +
+        " / status " + std::to_string(storage.filesystem_status);
+    const std::string probe_detail = std::string("Filesystem probe: ") +
+        (storage.filesystem_available ? "available" : "unavailable") +
+        " / startup log: " + (storage.logs_available ? "available" : "unavailable");
     hui::ps5::Pad pad;
     if (!pad.open()) dlog("Controller unavailable on storage recovery screen");
     hui::InputTracker tracker;
@@ -276,6 +284,8 @@ bool storage_error_screen(const Options& o, const Ps5StoragePaths& storage) {
             italian ? "Poi riprova. Account e download esistenti vengono conservati." :
                       "Then retry. Your existing account and downloads are preserved.", 140, 558, 30, muted);
         list.text(regular, fonts.regular.texture, detail, 140, 644, 23, muted);
+        list.text(regular, fonts.regular.texture, elevation_detail, 140, 696, 21, muted);
+        list.text(regular, fonts.regular.texture, probe_detail, 140, 731, 21, muted);
         const hui::ui::Hint hints[] = {
             {hui::ui::Button::cross, italian ? "Riprova" : "Retry"},
             {hui::ui::Button::circle, italian ? "Esci" : "Exit"}};
