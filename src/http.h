@@ -12,6 +12,7 @@ struct HttpResponse {
 	std::string error;     // transport error (DNS, TLS, timeout, ...)
 	std::string content_type;
 	std::string cache_control, etag, retry_after, content_range, content_encoding;
+	std::string rb_session;  // RBTV stream resolver session token, when supplied
 	bool ok() const { return error.empty() && status >= 200 && status < 300; }
 	std::string describe() const;  // "HTTP 404" / "Could not resolve host: ..."
 };
