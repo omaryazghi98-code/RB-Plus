@@ -136,11 +136,6 @@ int open_helper(const char *preferred_path) noexcept
     return -1;
 }
 
-const char *elevation::helper_open_diagnostic() noexcept
-{
-    return g_helper_open_diagnostic;
-}
-
 elevation::Status submit(int socket, int helper, const elevation::wire::Message &request) noexcept
 {
     using elevation::Status;
@@ -176,6 +171,11 @@ elevation::Status submit(int socket, int helper, const elevation::wire::Message 
     return exchange(socket, request);
 }
 } // namespace
+
+const char *elevation::helper_open_diagnostic() noexcept
+{
+    return g_helper_open_diagnostic;
+}
 
 elevation::Status elevation::request(Capability capability, const char *helper_path) noexcept
 {
