@@ -39,7 +39,7 @@ These tests exercise synthetic protobuf byte buffers only and do not contact the
 
 ## Native PS5 build
 
-The inherited native build instructions are in [BUILDING.md](BUILDING.md). The current build metadata and title identity are still Stremio Plus-specific until the RBTV+ integration and packaging transition are completed. Do not install an artifact built from the current source expecting an RBTV+ native port.
+The inherited native build instructions are in [BUILDING.md](BUILDING.md). The native package metadata and build receipt now identify the app as **RBTV+**, using development title ID `PPSA98273`. The in-app navigation wordmark has also been switched to RBTV+. The inherited launcher icon (`app/sce_sys/icon0.png`) still needs RBTV+ artwork, and the result remains untested on-console—do not install it as a finished port yet.
 
 ## Reference prototype
 
@@ -115,7 +115,7 @@ then sync them in Stremio Plus.
 
 You need a PS5 with a working native homebrew loader, a Stremio account, and
 the add-ons you want to use configured on that account. Build instructions
-are in [BUILDING.md](BUILDING.md). The application's title ID is `PPSA74126`.
+are in [BUILDING.md](BUILDING.md). The application's title ID is `PPSA98273`.
 
 App settings, the download directory registry, and streaming caches live in
 **`/data/Stremio/appdata`**. Logs stay in **`/data/Stremio`**. The app prepares
@@ -139,7 +139,7 @@ in `/data/Stremio/downloads/` are discovered and included when moving to your
 chosen folder. Keep enough free space on the destination filesystem.
 
 Installing the app itself on an M.2 volume, for example at
-`/mnt/ext1/homebrew/PPSA74126`, does not change the settings or log paths.
+`/mnt/ext1/homebrew/PPSA98273`, does not change the settings or log paths.
 To store videos on that volume, select a folder under `/mnt/ext1` in the
 download folder picker.
 
