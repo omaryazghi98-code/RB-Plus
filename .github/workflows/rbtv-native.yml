@@ -29,9 +29,15 @@ jobs:
       - name: Install protocol test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ pkg-config libcurl4-openssl-dev
+          sudo apt-get install -y g++ clang-18 pkg-config libcurl4-openssl-dev
       - name: Validate RBTV+ package metadata
         run: python3 tools/validate-app-metadata.py app/sce_sys/param.json
+      - name: Generate and validate RBTV+ launcher icon
+        run: |
+          python3 tools/make-rbtv-icon.py /tmp/rbtv-icon0.png
+          python3 -c 'import struct; d=open("/tmp/rbtv-icon0.png","rb").read(); assert d[:8] == bytes.fromhex("89504e470d0a1a0a"); assert struct.unpack(">II", d[16:24]) == (512, 512); print("launcher PNG dimensions: 512x512")'
+      - name: Run native storage startup regressions
+        run: python3 tests/run_ps5_storage_tests.py
       - name: Run offline RBTV protocol tests
         run: python3 tests/run_rbtv_tests.py
       - name: Run native HTTP transport regressions
