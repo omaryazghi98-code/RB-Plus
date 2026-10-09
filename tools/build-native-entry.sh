@@ -121,6 +121,15 @@ done
 mkdir -p "$APP/licenses"
 cp "$B/lapy-helper/Lapy-MIT.txt" "$APP/licenses/Lapy-MIT.txt"
 cp "$APP_FILES/ca-bundle.crt" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY.md" "$APP/"
+# Optional local-only PS5LOG config for console diagnostics. Never commit dev.conf.
+if [[ -n "${PS5LOG_DEV_CONF:-}" ]]; then
+    [[ -f "$PS5LOG_DEV_CONF" ]] || {
+        echo "PS5LOG_DEV_CONF file not found: $PS5LOG_DEV_CONF" >&2
+        exit 2
+    }
+    cp -- "$PS5LOG_DEV_CONF" "$APP/dev.conf"
+    echo "Included private PS5 logger config at app0/dev.conf"
+fi
 # The PS5 cannot enumerate app0 sound folders; preserve an explicit index.
 python3 - "$APP/hui/audio" <<'PY'
 from pathlib import Path
