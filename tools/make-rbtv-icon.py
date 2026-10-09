@@ -40,7 +40,7 @@ def rounded_icon() -> bytearray:
         left = max(0, min(WORK, int(math.ceil(inset))))
         right = max(left, min(WORK, int(math.floor(WORK - inset))))
         row = bytearray(TRANSPARENT_ORANGE) * WORK
-        row[left:right] = bytearray(ORANGE) * (right - left)
+        row[left * 4:right * 4] = bytearray(ORANGE) * (right - left)
         at = y * WORK * 4
         pixels[at:at + WORK * 4] = row
     return pixels
