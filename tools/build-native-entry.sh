@@ -111,6 +111,8 @@ python3 "$ROOT/tools/validate-app-metadata.py" "$APP/sce_sys/param.json"
 for asset in icon0.png pic0.dds pic1.dds snd0.at9; do
     [[ ! -f $APP_FILES/sce_sys/$asset ]] || cp "$APP_FILES/sce_sys/$asset" "$APP/sce_sys/"
 done
+# Replace inherited Stremio launcher artwork with an RBTV+ wordmark icon.
+python3 "$ROOT/tools/make-rbtv-icon.py" "$APP/sce_sys/icon0.png"
 bash "$BP/tools/validate-assets.sh" "$APP/sce_sys"
 for directory in assets fonts hui licenses; do
     [[ ! -d $APP_FILES/$directory ]] || cp -a "$APP_FILES/$directory" "$APP/"
