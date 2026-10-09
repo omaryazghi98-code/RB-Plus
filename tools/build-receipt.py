@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 
-APPLICATION_NAME = 'Stremio Plus'
+APPLICATION_NAME = 'RBTV+'
 
 
 def file_hash(path):
