@@ -1,6 +1,6 @@
 <rml>
 	<head>
-		<title>Stremio Plus</title>
+		<title>RBTV+</title>
 		<link type="text/rcss" href="rml.rcss"/>
 		<link type="text/rcss" href="css/theme.rcss"/>
 		<link type="text/rcss" href="css/shell.rcss"/>
@@ -20,7 +20,7 @@
 
 			<!-- ======================= Left navigation ======================= -->
 			<div id="nav" data-class-focused="zone == 'nav'">
-				<div class="nav-logo"><img src="icons/logo.png"/></div>
+				<div class="nav-logo"><div class="nav-logo-mark">RBTV+</div></div>
 				<div class="nav-item nav-rbtv" data-class-active="nav_sel == 0" data-class-selected="zone == 'nav' && nav_sel == 0">
 					<div class="nav-rbtv-mark">RB</div><div class="nav-label">RBTV+</div>
 				</div>
