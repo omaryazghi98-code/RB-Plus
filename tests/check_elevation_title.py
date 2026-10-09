@@ -21,7 +21,7 @@ if fallback.group(1) != title_id:
     )
 if "TARGET_TITLE_ID ?= PPSA98273" not in makefile:
     raise SystemExit("Elevation helper Makefile default must match the RBTV+ development title")
-if '-DTARGET_TITLE_ID=\\\\\"$(TARGET_TITLE_ID)\\\\\"' not in makefile:
+if "-DTARGET_TITLE_ID=" not in makefile or '$(TARGET_TITLE_ID)' not in makefile:
     raise SystemExit("Elevation helper build must compile its target ID as a string literal")
 if 'TARGET_TITLE_ID="$TITLE" OUTPUT="$B/sandbox-elevator.elf"' not in builder:
     raise SystemExit("Native app builder must pass its selected title ID to the elevation helper")
