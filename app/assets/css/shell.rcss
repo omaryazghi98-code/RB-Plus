@@ -31,8 +31,7 @@
 	justify-content: center;
 }
 
-/* The items sit centred on the screen's height; the logo at the bottom.
-   logo.png is rendered at exactly 60dp x kUiScale = 54px (make_icons.sh). */
+/* The navigation's RBTV+ wordmark sits at the bottom of the left rail. */
 .nav-logo {
 	position: absolute;
 	left: 0px;
@@ -42,10 +41,18 @@
 	text-align: center;
 }
 
-.nav-logo img {
-	width: 60dp;
-	height: 60dp;
-	margin-top: 10dp;
+.nav-logo-mark {
+	box-sizing: border-box;
+	width: 86dp;
+	height: 42dp;
+	margin: 10dp auto 0px;
+	padding-top: 10dp;
+	border-radius: 12dp;
+	background-color: #34255f;
+	color: #ffffff;
+	font-size: 19dp;
+	font-weight: bold;
+	text-align: center;
 }
 
 .nav-item {
