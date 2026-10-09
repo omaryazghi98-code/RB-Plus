@@ -209,7 +209,7 @@ public:
 	std::vector<UiRbtvStream> rbtv_streams;
 	std::string rbtv_status = "Configure HTTPS endpoints and approve service access in Settings.";
 	std::string rbtv_detail_title, rbtv_detail_league, rbtv_detail_teams;
-	std::string rbtv_detail_score, rbtv_detail_kickoff, rbtv_detail_status;
+	std::string rbtv_detail_score, rbtv_detail_kickoff, rbtv_detail_status, rbtv_detail_message;
 
 	std::vector<UiChip> disc_chips;
 	int disc_chip = 0;
