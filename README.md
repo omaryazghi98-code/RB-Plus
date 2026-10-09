@@ -7,8 +7,8 @@ The target is the original RBTV+ catalogue, event/match details, and stream-reso
 ## Current implementation boundaries
 
 - `RBTV_PS5_Port_v0.3.0.zip` is retained as the earlier Windows-hosted web/API prototype for reference. It is **not** integrated into the native C++ executable.
-- The native app currently starts with its existing Stremio account/add-on flow. RBTV+ API endpoints and match data have not yet been connected to the native UI.
-- RBTV+ API endpoint domains found in the APK must be reviewed before the first live request. Do not treat endpoint reachability or ownership as verified.
+- The native app still starts with its existing Stremio account/add-on flow; the RBTV+ API is not connected to the UI yet. A native protocol layer has now been added for bounded protobuf parsing, dynamic signature hashing, live-catalogue/detail requests and stream resolution. Its endpoints are empty by default and it makes no request until a caller explicitly invokes it.
+- RBTV+ API endpoint domains found in the APK must be reviewed before the first live request. Do not treat endpoint reachability or ownership as verified. The client requires HTTPS and never disables certificate validation.
 - The prototype supports standard HTTP(S) HLS/header relay where possible. RBTV+'s Android stream middleware (including P2P/CSL and provider-specific resolution) has not been ported yet, so some sources may not play.
 - This is not yet a released or console-validated RBTV+ PKG.
 
@@ -23,6 +23,16 @@ git pull
 ```
 
 On subsequent updates, run `git pull` from the repository folder. If you already have a clone, there is no need to download ZIPs.
+
+## Native API decoder tests
+
+Run the offline protocol/signature tests with:
+
+```sh
+python3 tests/run_rbtv_tests.py
+```
+
+These tests exercise synthetic protobuf byte buffers only and do not contact the service hosts extracted from the APK. They are protocol unit tests, not evidence that the live service is reachable or that media playback works.
 
 ## Native PS5 build
 
