@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "app.h"
+#include "http.h"
 #include "calendar_date.h"
 #include "download_directory.h"
 #include "ui_language.h"
@@ -18,7 +19,7 @@ enum Row {
     Account, Language, DateComponents, DateFormat, TorrentSpeed, DownloadDirectory, SubLangs, AutoSubs, SubSize,
     SubBackground, SubColor, SubEffect, SubFont, SubDelay,
     AudioLangs, Autoplay, NextEpisodeDelay, SeekStep, ShoulderSeekStep, Resolution, ReducedMotion, Contrast,
-    ControllerLight, Sounds, Volume, Statistics, Addons, Reload, Exit, Count
+    ControllerLight, Sounds, Volume, Statistics, Addons, RbtvApi, RbtvOrigin, RbtvAccess, RbtvRefresh, Reload, Exit, Count
 };
 
 struct LanguageChoice { const char* code; const char* italian; const char* english; };
@@ -217,6 +218,21 @@ void App::settings_refresh() {
     row(Statistics, "show_stats", t("Statistiche di riproduzione", "Playback statistics"), t("Decoder, frame, buffer e fotogrammi scartati.", "Decoder, frame rate, buffer and dropped frames.")); toggle(Statistics, settings_.show_stats);
     row(Addons, "addons", t("Add-on", "Add-ons"),
         t("Gli add-on sincronizzati con il tuo account Stremio.", "Add-ons synchronized with your Stremio account."));
+    row(RbtvApi, "rbtv_data_api", "RBTV+ data endpoint",
+        t("HTTPS host extracted from the APK. Review the domain before saving; editing it revokes network approval.",
+          "HTTPS host from the APK. Review the domain before saving; editing it revokes network approval."),
+        settings_.rbtv_data_api.empty() ? t("Non configurato", "Not configured") : settings_.rbtv_data_api);
+    row(RbtvOrigin, "rbtv_web_origin", "RBTV+ website origin",
+        t("HTTPS origin sent as Origin/Referer. Saving a change revokes network approval.",
+          "HTTPS origin sent as Origin/Referer. Saving a change revokes network approval."),
+        settings_.rbtv_web_origin.empty() ? t("Non configurato", "Not configured") : settings_.rbtv_web_origin);
+    row(RbtvAccess, "rbtv_connection_approved", t("Accesso di rete RBTV+", "RBTV+ network access"),
+        t("Nessuna richiesta parte all'avvio. L'approvazione viene richiesta separatamente.",
+          "No request is made at startup. Endpoint approval is a separate action."),
+        settings_.rbtv_connection_approved ? t("Approvato", "Approved") : t("Non approvato", "Not approved"));
+    row(RbtvRefresh, "rbtv_refresh", t("Carica catalogo RBTV+", "Load RBTV+ catalogue"),
+        t("Effettua una richiesta solo se gli endpoint HTTPS sono configurati e approvati.",
+          "Makes a request only when HTTPS endpoints are configured and approved."));
     row(Reload, "reload", t("Aggiorna add-on e cataloghi", "Refresh add-ons and catalogs"), "");
     row(Exit, "exit", t("Esci da Stremio", "Exit Stremio"), "");
     s_sel = std::clamp(s_sel, 0, Count - 1);
@@ -283,6 +299,67 @@ void App::settings_button(Btn button) {
         case DateComponents: open_date_checklist(); break;
         case DownloadDirectory: open_download_directory_picker(); break;
         case Addons: set_view("addons"); break;
+        case RbtvApi:
+            open_input(setting.label, settings_.rbtv_data_api,
+                "Enter an HTTPS base URL only after reviewing the host.",
+                [this](const std::string& raw) {
+                    const std::string value = strip_trailing_slashes(trim(raw));
+                    if (!value.empty() && (value.rfind("https://", 0) != 0 || !http_valid_url(value))) {
+                        show_toast("RBTV data endpoint must be a valid HTTPS URL.", 6);
+                        return;
+                    }
+                    settings_.rbtv_data_api = value;
+                    settings_.rbtv_connection_approved = false;
+                    save_settings(); settings_refresh();
+                });
+            break;
+        case RbtvOrigin:
+            open_input(setting.label, settings_.rbtv_web_origin,
+                "Enter the HTTPS website origin used by Origin and Referer.",
+                [this](const std::string& raw) {
+                    std::string value = trim(raw);
+                    while (!value.empty() && value.back() == '/') value.pop_back();
+                    if (!value.empty() && (value.rfind("https://", 0) != 0 || !http_valid_url(value))) {
+                        show_toast("RBTV website origin must be a valid HTTPS URL.", 6);
+                        return;
+                    }
+                    settings_.rbtv_web_origin = value;
+                    settings_.rbtv_connection_approved = false;
+                    save_settings(); settings_refresh();
+                });
+            break;
+        case RbtvAccess:
+            if (settings_.rbtv_connection_approved) {
+                open_dropdown("RBTV+ endpoint access",
+                    {"Keep approved", "Revoke access"}, 0, [this](int selected) {
+                        if (selected == 1) {
+                            settings_.rbtv_connection_approved = false;
+                            if (rbtv_cancel_) rbtv_cancel_->store(true);
+                            if (rbtv_detail_cancel_) rbtv_detail_cancel_->store(true);
+                            if (rbtv_stream_cancel_) rbtv_stream_cancel_->store(true);
+                            save_settings(); settings_refresh();
+                            rbtv_status = "Network access revoked. No further RBTV+ requests will start.";
+                        }
+                    });
+            } else {
+                open_dropdown("Review and approve RBTV+ endpoints",
+                    {"Cancel", "Approve configured HTTPS endpoints"}, 0, [this](int selected) {
+                        if (selected != 1) return;
+                        if (settings_.rbtv_data_api.empty() || settings_.rbtv_web_origin.empty() ||
+                            settings_.rbtv_data_api.rfind("https://", 0) != 0 ||
+                            settings_.rbtv_web_origin.rfind("https://", 0) != 0 ||
+                            !http_valid_url(settings_.rbtv_data_api) || !http_valid_url(settings_.rbtv_web_origin)) {
+                            show_toast("Configure valid HTTPS endpoints before approval.", 6);
+                            return;
+                        }
+                        settings_.rbtv_connection_approved = true;
+                        save_settings(); settings_refresh();
+                        rbtv_status = "Endpoints approved. Press Cross on RBTV+ to load the live catalogue.";
+                        show_toast("RBTV+ endpoints approved. No request has been made yet.");
+                    });
+            }
+            break;
+        case RbtvRefresh: set_view("rbtv"); rbtv_load_matches(); break;
         case Reload: load_addons(); if (signed_in()) load_library(); break;
         case Exit: exit_ = true; break;
         default: break;
