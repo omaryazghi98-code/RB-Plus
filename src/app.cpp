@@ -480,7 +480,7 @@ void App::set_view(const std::string& v) {
 	else watch_cancel_next_episode();
 	g_art.clear_queue();
 	view = v;
-	zone = "content";
+	zone = v == "rbtv" ? "rbtv-sports" : "content";
 	if (v == "rbtv") nav_sel = 0;
 	else if (v == "home") nav_sel = 1, refresh_home_cards();
 	else if (v == "discover") nav_sel = 2, enter_discover();
