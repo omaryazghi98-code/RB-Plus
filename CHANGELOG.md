@@ -1,18 +1,21 @@
 # Changelog
 
-## 0.5.6 — 2026-10-08
+## RBTV+ port — repository setup
 
-Stremio Plus 0.5.6 gives you more control over your downloads and makes it easier to keep watching your favorite series.
+- Established RB-Plus as the working repository for the RBTV+ PS5 port.
+- Documented that the v0.3.0 ZIP is a Windows-hosted prototype, not the native PS5 integration.
+- Recorded the current integration boundary: native RBTV+ catalogue, match detail and stream negotiation are still pending.
+- Preserved inherited Stremio Plus source history and license notices while the native port is adapted.
 
-### What's new
+## 0.5.6 — 2026-10-08 (upstream Stremio Plus baseline)
 
-- **Choose your download folder.** Browse internal, M.2 and external storage from Settings, or create a "Stremio Plus Downloads" folder. The app applies and verifies `0777` permissions and checks that the folder is writable.
-- **Move your existing downloads.** Changing folders moves completed videos, partial downloads, queued items, artwork and saved progress together. Transfers pause during the move, and interrupted moves can be recovered.
-- **Better download recovery.** Improved handling of checkpoint failures and full disks. Existing files remain visible when their folder is readable, including unrecognized downloads that you can remove to recover space.
-- **Fixed excessive installation storage.** Removed the 16 GiB private storage reservation requested by earlier builds. Streaming caches grow only as data is written.
-- **Watch the next episode.** A new overlay shows its thumbnail, title and episode number, with "Watch now" and "Ignore" controls. The countdown defaults to 15 seconds and can be adjusted or disabled in Settings. Circle dismisses it.
-- **Refined the loading screen.** Reduced the title logo to half its previous width and height while preserving its proportions.
+The inherited Stremio Plus 0.5.6 baseline includes the changes summarized below.
 
-### Upgrading
+- Choose a custom download folder across accessible storage.
+- Move existing downloads with recoverable interrupted-move handling.
+- Improve download checkpoint and full-storage recovery.
+- Remove the old private-volume installation reservation.
+- Add configurable next-episode autoplay and countdown.
+- Refine the launch/loading screen.
 
-An old installation may retain the 16 GiB reservation after its files are replaced. To reclaim it, uninstall the registered app through the console or loader, then install this version. Keep `/data/Stremio` and your downloaded-video folders. You may need to sign in again.
+For the full inherited changelog, see the upstream repository history. These entries describe the starting native codebase, not completed RBTV+ functionality.
