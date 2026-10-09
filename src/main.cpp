@@ -240,7 +240,7 @@ const char* elevation_status_name(int status) noexcept {
     case 2: return "unsupported protocol version";
     case 3: return "unsupported capability";
     case 4: return "target title/PID mismatch";
-    case 5: return "helper unavailable (older/unknown failure)";
+    case 5: return "helper reported unavailable";
     case 6: return "process preparation failed";
     case 7: return "filesystem grant failed";
     case 8: return "grant rollback failed";
