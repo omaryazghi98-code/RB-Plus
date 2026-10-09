@@ -1,0 +1,282 @@
+/* RBTV+ native TV catalogue, styled to fit the inherited native UI kit. */
+.rbtv-page {
+    padding: 24dp 42dp 26dp 32dp;
+}
+.rbtv-page-head {
+    flex: 0 0 auto;
+    margin-bottom: 22dp;
+}
+.rbtv-kicker {
+    font-size: 16dp;
+    letter-spacing: 3dp;
+    font-weight: bold;
+    color: #c5b6ff;
+    margin-bottom: 4dp;
+}
+.rbtv-title {
+    font-size: 48dp;
+    font-weight: bold;
+    color: #ffffff;
+}
+.rbtv-status {
+    font-size: 18dp;
+    color: #ffffff99;
+    margin-top: 6dp;
+    max-width: 1450dp;
+}
+.nav-rbtv {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-top: 7dp;
+    background-color: #2d204f;
+}
+.nav-rbtv-mark {
+    width: 54dp;
+    height: 40dp;
+    text-align: center;
+    padding-top: 4dp;
+    font-size: 25dp;
+    font-weight: bold;
+    color: #ffffff;
+}
+.nav-rbtv.active {
+    background-color: #5d42c6;
+}
+.nav-rbtv.selected {
+    background-color: #7b5bf5;
+}
+.rbtv-sports {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-top: 22dp;
+    margin-bottom: 14dp;
+}
+.rbtv-sport-chip {
+    height: 42dp;
+    padding: 9dp 20dp;
+    margin-right: 10dp;
+    border: 2dp #ffffff20;
+    border-radius: 22dp;
+    background-color: #ffffff08;
+    font-size: 17dp;
+    color: #ffffff99;
+}
+.rbtv-sport-chip.selected {
+    background-color: #7b5bf5;
+    border-color: #ffffffaa;
+    color: #ffffff;
+    font-weight: bold;
+}
+.rbtv-controls {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    font-size: 16dp;
+    color: #ffffff80;
+    margin-top: 5dp;
+}
+.rbtv-controls span {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-right: 28dp;
+}
+.rbtv-controls .key-icon,
+.rbtv-detail-hint .key-icon {
+    width: 22dp;
+    height: 22dp;
+    margin-right: 7dp;
+}
+.rbtv-match-list {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    overflow-y: auto;
+}
+.rbtv-match-card {
+    width: 790dp;
+    height: 177dp;
+    box-sizing: border-box;
+    padding: 18dp 22dp;
+    margin-right: 18dp;
+    margin-bottom: 16dp;
+    border: 2dp #ffffff16;
+    border-radius: 18dp;
+    background-color: #ffffff08;
+}
+.rbtv-match-card.selected {
+    background-color: #392b70;
+    border-color: #b3a3ff;
+    decorator: image(../images/card_sel.png);
+}
+.rbtv-match-card-top,
+.rbtv-match-footer {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+.rbtv-league {
+    flex: 1;
+    font-size: 18dp;
+    font-weight: bold;
+    color: #c7bbff;
+}
+.rbtv-hot {
+    font-size: 14dp;
+    font-weight: bold;
+    color: #1b1212;
+    background-color: #ffcb70;
+    padding: 3dp 8dp;
+    border-radius: 6dp;
+}
+.rbtv-match-teams {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-top: 15dp;
+    margin-bottom: 11dp;
+}
+.rbtv-team {
+    flex: 1;
+    font-size: 23dp;
+    font-weight: bold;
+    color: #ffffff;
+    text-align: center;
+}
+.rbtv-versus {
+    width: 60dp;
+    text-align: center;
+    font-size: 13dp;
+    color: #ffffff5c;
+}
+.rbtv-match-footer {
+    font-size: 15dp;
+    color: #ffffff80;
+}
+.rbtv-match-footer span {
+    margin-right: 19dp;
+}
+.rbtv-empty {
+    width: 100%;
+    min-height: 260dp;
+    padding: 44dp 36dp;
+    border: 2dp #ffffff12;
+    border-radius: 22dp;
+    background-color: #ffffff05;
+}
+.rbtv-empty-mark {
+    font-size: 22dp;
+    font-weight: bold;
+    color: #c7bbff;
+    margin-bottom: 22dp;
+}
+.rbtv-empty-title {
+    font-size: 30dp;
+    font-weight: bold;
+    color: #ffffff;
+}
+.rbtv-empty-copy {
+    margin-top: 12dp;
+    max-width: 1100dp;
+    font-size: 20dp;
+    line-height: 1.45;
+    color: #ffffff99;
+}
+.rbtv-detail-page {
+    padding-top: 28dp;
+}
+.rbtv-detail-head {
+    flex: 0 0 auto;
+    min-height: 285dp;
+    margin-bottom: 18dp;
+    padding: 20dp 28dp 24dp 28dp;
+    border-radius: 20dp;
+    background-color: #191527;
+    decorator: image(../images/card_sel.png);
+}
+.rbtv-detail-title {
+    margin-top: 5dp;
+    font-size: 42dp;
+    font-weight: bold;
+    color: #ffffff;
+}
+.rbtv-detail-league {
+    margin-top: 5dp;
+    font-size: 18dp;
+    color: #c7bbff;
+}
+.rbtv-detail-teams {
+    margin-top: 18dp;
+    font-size: 26dp;
+    font-weight: bold;
+    color: #ffffff;
+}
+.rbtv-detail-score {
+    margin-top: 4dp;
+    font-size: 24dp;
+    color: #f4d38a;
+}
+.rbtv-detail-meta {
+    margin-top: 7dp;
+    font-size: 16dp;
+    color: #ffffff88;
+}
+.rbtv-detail-hint {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-top: 20dp;
+    font-size: 16dp;
+    color: #ffffffaa;
+}
+.rbtv-detail-hint span {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-left: 30dp;
+}
+.rbtv-stream-list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.rbtv-stream-card {
+    width: 100%;
+    min-height: 95dp;
+    padding: 17dp 24dp;
+    margin-bottom: 12dp;
+    box-sizing: border-box;
+    border: 2dp #ffffff18;
+    border-radius: 14dp;
+    background-color: #ffffff08;
+}
+.rbtv-stream-card.selected {
+    background-color: #392b70;
+    border-color: #b3a3ff;
+}
+.rbtv-stream-name {
+    font-size: 22dp;
+    font-weight: bold;
+    color: #ffffff;
+}
+.rbtv-stream-description {
+    margin-top: 8dp;
+    font-size: 16dp;
+    color: #ffffff88;
+}
+.rbtv-stream-badge {
+    margin-top: 8dp;
+    font-size: 13dp;
+    font-weight: bold;
+    color: #f4d38a;
+}
+.rbtv-empty-compact {
+    min-height: 135dp;
+    padding: 24dp;
+}
