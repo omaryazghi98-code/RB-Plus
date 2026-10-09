@@ -29,10 +29,7 @@ enum class Status : std::uint32_t
     rollback_failed = 8,
     transport_error = 9,
     protocol_error = 10,
-    helper_open_failed = 11,       // Application could not open the bundled helper ELF.
-    payload_args_unavailable = 12, // elfldr did not provide the expected kernel-data argument.
-    kernel_state_unavailable = 13, // Helper could not safely read the target process state.
-    root_vnode_unavailable = 14,   // SDK could not provide a valid root vnode.
+    helper_open_failed = 11, // Application could not open the bundled helper ELF.
 };
 
 namespace wire
@@ -69,7 +66,7 @@ constexpr Status validate(const Message &message) noexcept
     if (message.version != Message{}.version)
         return Status::unsupported_version;
     if (message.kind < Kind::request || message.kind > Kind::response || message.pid == 0 ||
-        message.pid > INT32_MAX || message.status > Status::root_vnode_unavailable)
+        message.pid > INT32_MAX || message.status > Status::protocol_error)
         return Status::invalid_request;
     if (message.capability != Capability::filesystem)
         return Status::unsupported_capability;
