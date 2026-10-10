@@ -307,6 +307,20 @@ int main(int argc, char** argv) {
         check_no_probe();
     }
 
+    // A persistent listing denial on the shared log directory should not
+    // prevent startup when the app's dedicated appdata path passes its own
+    // read/write proof after elevation.
+    reset(); fail_operation = "opendir"; fail_path = "/data/RBTVPlus";
+    deny_until_grant = false;
+    const auto appdata_only = ps5_prepare_storage();
+    check(helper_calls == 1 && appdata_only.helper_requested,
+        "persistent log-directory listing denial requests elevation");
+    check(appdata_only.filesystem_available && appdata_only.data_available,
+        "verified appdata access is sufficient when only the parent listing remains denied");
+    check(boot_text().find("after=\"ready\" after_errno=0") != std::string::npos,
+        "successful direct appdata proof becomes the final post-grant result");
+    check_no_probe();
+
     reset(); fail_operation = "fsync"; fail_path = ".storage-probe-";
     failure_errno = ENOSPC; deny_until_grant = false;
     const auto full = ps5_prepare_storage();
