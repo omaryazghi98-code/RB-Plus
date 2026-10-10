@@ -343,6 +343,7 @@ Ps5StoragePaths ps5_prepare_storage() noexcept {
     const auto downloads_before = directory_snapshot("/data/RBTVPlus/downloads");
     const auto euid_before = ::geteuid();
     StorageProbe before, after;
+    bool elevation_granted = false;
     paths.filesystem_available = probe_storage(before);
     after = before;
     if (!paths.filesystem_available && needs_filesystem_request(before)) {
@@ -350,6 +351,7 @@ Ps5StoragePaths ps5_prepare_storage() noexcept {
         paths.filesystem_status = static_cast<int>(
             elevation::request(elevation::Capability::filesystem));
         if (paths.filesystem_status == static_cast<int>(elevation::Status::ok)) {
+            elevation_granted = true;
             after = {};
             paths.filesystem_available = probe_storage(after);
         }
@@ -367,9 +369,18 @@ Ps5StoragePaths ps5_prepare_storage() noexcept {
     download_writer::configure_helper(std::string(paths.app) + "/download-writer.elf");
     StorageProbe data_probe = after;
     unsigned migrated_files = 0;
-    if (paths.filesystem_available) {
+    // A granted title can still be denied read/enumeration access to the shared
+    // logging directory while its dedicated appdata directory is usable. After
+    // a successful grant, test appdata directly instead of making that parent
+    // directory listing a hard prerequisite. prepare_appdata performs its own
+    // mkdir/lstat/open/write/read/rename checks and reports the concrete failure.
+    if (paths.filesystem_available || elevation_granted) {
         data_probe = {};
         paths.data_available = prepare_appdata(data_probe, migrated_files);
+        if (paths.data_available) {
+            paths.filesystem_available = true;
+            after = data_probe;
+        }
     }
     if (!paths.data_available) {
         paths.data_error = data_probe.stage;
