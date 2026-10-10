@@ -52,6 +52,8 @@ extern "C" void ps5_load_modules(void);
 #include <array>
 #include <chrono>
 #include <csignal>
+#include <cerrno>
+#include <sys/stat.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -278,6 +280,23 @@ bool storage_error_screen(const Options& o, const Ps5StoragePaths& storage) {
         (storage.filesystem_available ? "available" : "unavailable") +
         " / startup log: " + (storage.logs_available ? "available" : "unavailable");
     const std::string helper_open_detail = elevation::helper_open_diagnostic();
+    const auto describe_directory = [](const char* path) {
+        char detail[192];
+        struct stat info{};
+        if (::lstat(path, &info) == 0) {
+            std::snprintf(detail, sizeof(detail), "%s mode=%04o uid=%u gid=%u",
+                path, unsigned(info.st_mode & 07777), unsigned(info.st_uid), unsigned(info.st_gid));
+        } else {
+            const int error = errno;
+            std::snprintf(detail, sizeof(detail), "%s lstat errno=%d", path, error);
+        }
+        return std::string(detail);
+    };
+    const std::string data_directory_detail = describe_directory("/data");
+    const std::string rbtv_directory_detail = describe_directory("/data/RBTVPlus");
+    const std::string process_identity = "Process IDs: uid=" + std::to_string(::getuid()) +
+        " euid=" + std::to_string(::geteuid()) + " gid=" + std::to_string(::getgid()) +
+        " egid=" + std::to_string(::getegid());
     hui::ps5::Pad pad;
     if (!pad.open()) dlog("Controller unavailable on storage recovery screen");
     hui::InputTracker tracker;
@@ -308,6 +327,9 @@ bool storage_error_screen(const Options& o, const Ps5StoragePaths& storage) {
         list.text(regular, fonts.regular.texture, elevation_detail, 140, 696, 21, muted);
         list.text(regular, fonts.regular.texture, probe_detail, 140, 731, 21, muted);
         list.text(regular, fonts.regular.texture, helper_open_detail, 140, 766, 18, muted);
+        list.text(regular, fonts.regular.texture, data_directory_detail, 140, 798, 18, muted);
+        list.text(regular, fonts.regular.texture, rbtv_directory_detail, 140, 824, 18, muted);
+        list.text(regular, fonts.regular.texture, process_identity, 140, 850, 18, muted);
         const hui::ui::Hint hints[] = {
             {hui::ui::Button::cross, italian ? "Riprova" : "Retry"},
             {hui::ui::Button::circle, italian ? "Esci" : "Exit"}};
