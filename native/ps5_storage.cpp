@@ -4,6 +4,8 @@
 #include "download_writer/client.hpp"
 
 #include <cerrno>
+#include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
@@ -13,6 +15,31 @@
 #include <unistd.h>
 
 extern "C" int sceKernelDebugOutText(int channel, const char* text);
+
+#ifdef PLATFORM_PS5_NATIVE
+namespace {
+struct DiagnosticSockaddrIn {
+    std::uint8_t length;
+    std::uint8_t family;
+    std::uint16_t port;
+    std::uint32_t address;
+    std::uint16_t virtual_port;
+    std::uint8_t zero[6];
+};
+struct DiagnosticConfig {
+    char server[64]{};
+    std::uint16_t port = 9300;
+    bool enabled = false;
+};
+}
+extern "C" {
+int sceNetConnect(int socket, const void* address, std::uint32_t address_length);
+int sceNetSend(int socket, const void* data, std::size_t length, int flags);
+int sceNetSetsockopt(int socket, int level, int option, const void* value, std::uint32_t size);
+int sceNetSocket(const char* name, int domain, int type, int protocol);
+int sceNetSocketClose(int socket);
+}
+#endif
 
 namespace {
 constexpr char kLogDirectory[] = "/data/RBTVPlus";
@@ -46,6 +73,135 @@ struct StorageProbe {
         return false;
     }
 };
+
+#ifdef PLATFORM_PS5_NATIVE
+bool diagnostic_ipv4(const char* text, std::uint32_t& out) noexcept {
+    std::uint32_t address = 0;
+    const char* p = text;
+    for (unsigned i = 0; i < 4; ++i) {
+        if (*p < '0' || *p > '9') return false;
+        unsigned value = 0, digits = 0;
+        while (*p >= '0' && *p <= '9') {
+            value = value * 10 + static_cast<unsigned>(*p - '0');
+            if (++digits > 3 || value > 255) return false;
+            ++p;
+        }
+        address |= value << (i * 8);
+        if (i != 3) {
+            if (*p++ != '.') return false;
+        } else if (*p != '\0') {
+            return false;
+        }
+    }
+    out = address;
+    return true;
+}
+
+bool diagnostic_read_config(DiagnosticConfig& config) noexcept {
+    constexpr const char* paths[] = {
+        "/app0/dev.conf",
+        "/mnt/sandbox/PPSA98273_000/app0/dev.conf"
+    };
+    char contents[2048]{};
+    std::size_t used = 0;
+    for (const char* path : paths) {
+        const int fd = ::open(path, O_RDONLY);
+        if (fd < 0) continue;
+        while (used + 1 < sizeof(contents)) {
+            const auto count = ::read(fd, contents + used, sizeof(contents) - used - 1);
+            if (count < 0 && errno == EINTR) continue;
+            if (count <= 0) break;
+            used += static_cast<std::size_t>(count);
+        }
+        (void)::close(fd);
+        if (used) break;
+    }
+    if (!used) return false;
+    contents[used] = '\0';
+
+    const char* enabled = std::strstr(contents, "DEV_ENABLED=");
+    const char* server = std::strstr(contents, "DEV_SERVER=");
+    const char* port = std::strstr(contents, "DEV_PORT=");
+    if (!enabled || enabled[12] != '1' || !server || !port) return false;
+    server += sizeof("DEV_SERVER=") - 1;
+    const auto server_length = std::strcspn(server, "\r\n");
+    if (!server_length || server_length >= sizeof(config.server)) return false;
+    std::memcpy(config.server, server, server_length);
+    config.server[server_length] = '\0';
+    std::uint32_t ignored = 0;
+    if (!diagnostic_ipv4(config.server, ignored)) return false;
+
+    port += sizeof("DEV_PORT=") - 1;
+    char* end = nullptr;
+    const unsigned long parsed = std::strtoul(port, &end, 10);
+    if (end == port || parsed < 1 || parsed > 65535) return false;
+    config.port = static_cast<std::uint16_t>(parsed);
+    config.enabled = true;
+    return true;
+}
+
+void diagnostic_event(const char* message) noexcept {
+    DiagnosticConfig config;
+    std::uint32_t address_value = 0;
+    if (!message || !diagnostic_read_config(config) || !config.enabled ||
+        !diagnostic_ipv4(config.server, address_value)) return;
+
+    const int socket = sceNetSocket("rbtvplus-diag", 2, 1, 6);
+    if (socket < 0) return;
+    constexpr int level = 0xffff;
+    constexpr int timeout_us = 250000;
+    (void)sceNetSetsockopt(socket, level, 0x1105, &timeout_us, sizeof(timeout_us));
+    (void)sceNetSetsockopt(socket, level, 0x1106, &timeout_us, sizeof(timeout_us));
+    (void)sceNetSetsockopt(socket, level, 0x1109, &timeout_us, sizeof(timeout_us));
+    const auto port = static_cast<std::uint16_t>(
+        (config.port << 8) | (config.port >> 8));
+    const DiagnosticSockaddrIn endpoint{
+        sizeof(DiagnosticSockaddrIn), 2, port, address_value, 0, {0}
+    };
+    if (sceNetConnect(socket, &endpoint, sizeof(endpoint)) >= 0) {
+        char line[640];
+        const int length = std::snprintf(line, sizeof(line), "RBTVAPP %s\n", message);
+        if (length > 0 && static_cast<std::size_t>(length) < sizeof(line)) {
+            std::size_t offset = 0;
+            while (offset < static_cast<std::size_t>(length)) {
+                const int count = sceNetSend(socket, line + offset,
+                    static_cast<std::size_t>(length) - offset, 0);
+                if (count <= 0) break;
+                offset += static_cast<std::size_t>(count);
+            }
+        }
+    }
+    (void)sceNetSocketClose(socket);
+}
+
+#else
+void diagnostic_event(const char*) noexcept {}
+#endif
+
+void report_probe(const char* phase, bool available, const StorageProbe& probe) noexcept {
+    char message[400];
+    std::snprintf(message, sizeof(message),
+        "phase=%s available=%d stage=\"%s\" errno=%d uid=%u euid=%u gid=%u egid=%u",
+        phase, int(available), probe.stage, probe.error,
+        unsigned(::getuid()), unsigned(::geteuid()), unsigned(::getgid()), unsigned(::getegid()));
+    diagnostic_event(message);
+}
+
+void report_directory(const char* phase, const char* path) noexcept {
+    struct stat info{};
+    char message[400];
+    if (::lstat(path, &info) == 0) {
+        std::snprintf(message, sizeof(message),
+            "phase=%s path=%s mode=%04o uid=%u gid=%u dev=%llu ino=%llu",
+            phase, path, unsigned(info.st_mode & 07777), unsigned(info.st_uid), unsigned(info.st_gid),
+            static_cast<unsigned long long>(info.st_dev), static_cast<unsigned long long>(info.st_ino));
+    } else {
+        const int error = errno;
+        std::snprintf(message, sizeof(message), "phase=%s path=%s lstat_errno=%d",
+            phase, path, error);
+    }
+    diagnostic_event(message);
+}
 
 struct DirectorySnapshot {
     struct stat info{};
@@ -345,15 +501,27 @@ Ps5StoragePaths ps5_prepare_storage() noexcept {
     StorageProbe before, after;
     bool elevation_granted = false;
     paths.filesystem_available = probe_storage(before);
+    report_probe("initial_probe", paths.filesystem_available, before);
     after = before;
     if (!paths.filesystem_available && needs_filesystem_request(before)) {
         paths.helper_requested = true;
+        diagnostic_event("phase=elevation_request_begin");
         paths.filesystem_status = static_cast<int>(
             elevation::request(elevation::Capability::filesystem));
+        char elevation_message[256];
+        std::snprintf(elevation_message, sizeof(elevation_message),
+            "phase=elevation_return status=%d uid=%u euid=%u gid=%u egid=%u",
+            paths.filesystem_status, unsigned(::getuid()), unsigned(::geteuid()),
+            unsigned(::getgid()), unsigned(::getegid()));
+        diagnostic_event(elevation_message);
         if (paths.filesystem_status == static_cast<int>(elevation::Status::ok)) {
             elevation_granted = true;
             after = {};
             paths.filesystem_available = probe_storage(after);
+            report_probe("post_elevation_probe", paths.filesystem_available, after);
+            report_directory("post_elevation", "/data");
+            report_directory("post_elevation", kLogDirectory);
+            report_directory("post_elevation", kAppDataDirectory);
         }
     }
     // Keep startup diagnostics when the loader permits plain log writes even
@@ -377,6 +545,7 @@ Ps5StoragePaths ps5_prepare_storage() noexcept {
     if (paths.filesystem_available || elevation_granted) {
         data_probe = {};
         paths.data_available = prepare_appdata(data_probe, migrated_files);
+        report_probe("appdata_probe", paths.data_available, data_probe);
         if (paths.data_available) {
             paths.filesystem_available = true;
             after = data_probe;
